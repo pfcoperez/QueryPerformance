@@ -11,11 +11,11 @@ object TestTask {
   case class TaskResult(query: String, res: Seq[(WorkerId, QueryRes, Duration)]) {
 
     import com.stratio.querier.tasks.serialization.TaskResultSerializer
-    import org.json4s.jackson.Serialization.write
+    import org.json4s.jackson.Serialization.writePretty
     import org.json4s.DefaultFormats
     implicit val _ = DefaultFormats + TaskResultSerializer
 
-    override def toString: String = write(this)
+    override def toString: String = writePretty(this)
 
     /*override def toString: String = {
       s"""
