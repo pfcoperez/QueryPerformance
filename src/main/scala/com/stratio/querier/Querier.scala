@@ -1,6 +1,7 @@
 package com.stratio.querier
 
-import com.stratio.querier.tasks.TestTask
+import com.stratio.querier.queryproviders.DirectoryQueryProvider
+import com.stratio.querier.tasks.{TaskFactory, TestTask}
 import com.stratio.querier.workers.QueryWorker
 import com.stratio.querier.workers.QueryWorker.{QueryRes, WorkerId}
 
@@ -23,10 +24,12 @@ object Querier extends App {
     }
   }
 
-  val tasks: Seq[TestTask] = Seq(
-    TestTask("select * from t", worker1::worker2::Nil),
-    TestTask("select c1 from s", worker1::Nil)
-  )
+  val workers = worker1::worker2::Nil
+
+  val querySource = new DirectoryQueryProvider("./tests_queries/")
+
+  val tasks = TaskFactory(querySource, workers)
 
   tasks.foreach(t => println(t.run))
+  
 }
