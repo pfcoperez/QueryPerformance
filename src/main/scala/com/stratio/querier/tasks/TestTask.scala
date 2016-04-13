@@ -5,10 +5,11 @@ import com.stratio.querier.workers.QueryWorker
 import com.stratio.querier.workers.QueryWorker.{QueryRes, WorkerId}
 
 import scala.concurrent.duration.Duration
+import scala.util.Try
 
 object TestTask {
 
-  case class TaskResult(query: String, res: Seq[(WorkerId, QueryRes, Duration)]) {
+  case class TaskResult(query: String, res: Seq[(WorkerId, Try[QueryRes], Duration)]) {
 
     import com.stratio.querier.tasks.serialization.TaskResultSerializer
     import org.json4s.jackson.Serialization.writePretty

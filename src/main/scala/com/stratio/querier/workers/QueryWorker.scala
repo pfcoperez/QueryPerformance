@@ -1,6 +1,7 @@
 package com.stratio.querier.workers
 
 import scala.concurrent.duration._
+import scala.util.Try
 
 object QueryWorker {
   type QueryRes = Long
@@ -12,11 +13,11 @@ trait QueryWorker {
 
   val id: WorkerId
 
-  def measureQueryTime(sql: String): (QueryRes, Duration) = {
+  def measureQueryTime(sql: String): (Try[QueryRes], Duration) = {
     val init = System.currentTimeMillis
     (runQuery(sql), (System.currentTimeMillis - init) milliseconds)
   }
 
-  protected def runQuery(sql: String): QueryRes
+  protected def runQuery(sql: String): Try[QueryRes]
 
 }
