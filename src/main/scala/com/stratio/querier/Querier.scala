@@ -1,7 +1,7 @@
 package com.stratio.querier
 
 import com.stratio.querier.queryproviders.DirectoryQueryProvider
-import com.stratio.querier.queryproviders.hardcoded.HardcodedQueries01
+import com.stratio.querier.queryproviders.hardcoded.{HardcodedQueries01, TPCDSSelection}
 import com.stratio.querier.tasks.{TaskFactory, TestTask}
 import com.stratio.querier.workers.{PrestoWorker, QueryWorker}
 import com.stratio.querier.workers.QueryWorker.{QueryRes, WorkerId}
@@ -29,7 +29,7 @@ object Querier extends App {
 
   val workers = Seq(new PrestoWorker("10.200.0.118", 1234, "cassandra", "tpcds")) //worker1::worker2::Nil
 
-  val querySource = new HardcodedQueries01 //new DirectoryQueryProvider("./tests_queries/")
+  val querySource = new TPCDSSelection //new DirectoryQueryProvider("./tests_queries/")
 
   val tasks = TaskFactory(querySource, workers)
 

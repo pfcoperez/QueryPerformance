@@ -2,7 +2,7 @@ package com.stratio.querier.queryproviders.hardcoded
 
 import com.stratio.querier.queryproviders.QueryProvider
 
-trait HarcodedQueryProvider extends QueryProvider {
+trait HardcodedQueryProvider extends QueryProvider {
 
   protected val sqls: Seq[String]
 
