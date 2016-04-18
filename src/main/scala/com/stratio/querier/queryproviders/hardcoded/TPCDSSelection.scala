@@ -1,6 +1,14 @@
 package com.stratio.querier.queryproviders.hardcoded
 
-class TPCDSSelection extends HardcodedQueryProvider {
+object TPCDSSelection {
+  def apply(): TPCDSSelection = new TPCDSSelection()
+  def apply(catalog: String): TPCDSSelection = new TPCDSSelection(Some(catalog))
+}
+
+class TPCDSSelection private (catalog: Option[String] = None) extends HardcodedQueryProvider {
+
+  val tablePrefix: String = catalog map(_+".") getOrElse ""
+
   private val selection = Set(
     "q2",
     "q3",
@@ -42,15 +50,15 @@ class TPCDSSelection extends HardcodedQueryProvider {
   private val rc = Array(1000000, 1000000, 1000000, 1000000, 1000000);
 
   override protected val sqls: Seq[String] = Seq(
-    ("q1", """
+    ("q1", s"""
              | WITH customer_total_return AS
              |   (SELECT sr_customer_sk AS ctr_customer_sk, sr_store_sk AS ctr_store_sk,
              |           sum(sr_return_amt) AS ctr_total_return
-             |    FROM store_returns, date_dim
+             |    FROM ${tablePrefix}store_returns, ${tablePrefix}date_dim
              |    WHERE sr_returned_date_sk = d_date_sk AND d_year = 2000
              |    GROUP BY sr_customer_sk, sr_store_sk)
              | SELECT c_customer_id
-             |   FROM customer_total_return ctr1, store, customer
+             |   FROM customer_total_return ctr1, ${tablePrefix}store, ${tablePrefix}customer
              |   WHERE ctr1.ctr_total_return >
              |    (SELECT avg(ctr_total_return)*1.2
              |      FROM customer_total_return ctr2
@@ -60,14 +68,14 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |   AND ctr1.ctr_customer_sk = c_customer_sk
              |   ORDER BY c_customer_id LIMIT 100
            """.stripMargin),
-    ("q2", """
+    ("q2", s"""
              | WITH wscs as
              | (SELECT sold_date_sk, sales_price
              |  FROM (SELECT ws_sold_date_sk sold_date_sk, ws_ext_sales_price sales_price
-             |        FROM web_sales) x
+             |        FROM ${tablePrefix}web_sales) x
              |        UNION ALL
              |       (SELECT cs_sold_date_sk sold_date_sk, cs_ext_sales_price sales_price
-             |        FROM catalog_sales)),
+             |        FROM ${tablePrefix}catalog_sales)),
              | wswscs AS
              | (SELECT d_week_seq,
              |        sum(case when (d_day_name='Sunday') then sales_price else null end) sun_sales,
@@ -77,7 +85,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |        sum(case when (d_day_name='Thursday') then sales_price else null end) thu_sales,
              |        sum(case when (d_day_name='Friday') then sales_price else null end) fri_sales,
              |        sum(case when (d_day_name='Saturday') then sales_price else null end) sat_sales
-             | FROM wscs, date_dim
+             | FROM wscs, ${tablePrefix}date_dim
              | WHERE d_date_sk = sold_date_sk
              | GROUP BY d_week_seq)
              | SELECT d_week_seq1
@@ -97,8 +105,8 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |        ,thu_sales thu_sales1
              |        ,fri_sales fri_sales1
              |        ,sat_sales sat_sales1
-             |  FROM wswscs,date_dim
-             |  WHERE date_dim.d_week_seq = wswscs.d_week_seq AND d_year = 2001) y,
+             |  FROM wswscs,${tablePrefix}date_dim
+             |  WHERE ${tablePrefix}date_dim.d_week_seq = wswscs.d_week_seq AND d_year = 2001) y,
              | (SELECT wswscs.d_week_seq d_week_seq2
              |        ,sun_sales sun_sales2
              |        ,mon_sales mon_sales2
@@ -107,23 +115,23 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |        ,thu_sales thu_sales2
              |        ,fri_sales fri_sales2
              |        ,sat_sales sat_sales2
-             |  FROM wswscs, date_dim
-             |  WHERE date_dim.d_week_seq = wswscs.d_week_seq AND d_year = 2001 + 1) z
+             |  FROM wswscs, ${tablePrefix}date_dim
+             |  WHERE ${tablePrefix}date_dim.d_week_seq = wswscs.d_week_seq AND d_year = 2001 + 1) z
              | WHERE d_week_seq1=d_week_seq2-53
              | ORDER BY d_week_seq1
            """.stripMargin),
-    ("q3", """
-             | SELECT dt.d_year, item.i_brand_id brand_id, item.i_brand brand,SUM(ss_ext_sales_price) sum_agg
-             | FROM  date_dim dt, store_sales, item
+    ("q3", s"""
+             | SELECT dt.d_year, ${tablePrefix}item.i_brand_id brand_id, ${tablePrefix}item.i_brand brand,SUM(ss_ext_sales_price) sum_agg
+             | FROM  ${tablePrefix}date_dim dt, store_sales, ${tablePrefix}item
              | WHERE dt.d_date_sk = store_sales.ss_sold_date_sk
-             |   AND store_sales.ss_item_sk = item.i_item_sk
-             |   AND item.i_manufact_id = 128
+             |   AND store_sales.ss_item_sk = ${tablePrefix}item.i_item_sk
+             |   AND ${tablePrefix}item.i_manufact_id = 128
              |   AND dt.d_moy=11
-             | GROUP BY dt.d_year, item.i_brand, item.i_brand_id
+             | GROUP BY dt.d_year, ${tablePrefix}item.i_brand, ${tablePrefix}item.i_brand_id
              | ORDER BY dt.d_year, sum_agg desc, brand_id
              | LIMIT 100
            """.stripMargin),
-    ("q4", """
+    ("q4", s"""
              |WITH year_total AS (
              | SELECT c_customer_id customer_id,
              |        c_first_name customer_first_name,
@@ -135,7 +143,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |        d_year dyear,
              |        sum(((ss_ext_list_price-ss_ext_wholesale_cost-ss_ext_discount_amt)+ss_ext_sales_price)/2) year_total,
              |        's' sale_type
-             | FROM customer, store_sales, date_dim
+             | FROM ${tablePrefix}customer, store_sales, ${tablePrefix}date_dim
              | WHERE c_customer_sk = ss_customer_sk AND ss_sold_date_sk = d_date_sk
              | GROUP BY c_customer_id,
              |          c_first_name,
@@ -156,7 +164,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |        d_year dyear,
              |        sum((((cs_ext_list_price-cs_ext_wholesale_cost-cs_ext_discount_amt)+cs_ext_sales_price)/2) ) year_total,
              |        'c' sale_type
-             | FROM customer, catalog_sales, date_dim
+             | FROM ${tablePrefix}customer, ${tablePrefix}catalog_sales, ${tablePrefix}date_dim
              | WHERE c_customer_sk = cs_bill_customer_sk AND cs_sold_date_sk = d_date_sk
              | GROUP BY c_customer_id,
              |          c_first_name,
@@ -177,7 +185,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |       ,d_year dyear
              |       ,sum((((ws_ext_list_price-ws_ext_wholesale_cost-ws_ext_discount_amt)+ws_ext_sales_price)/2) ) year_total
              |       ,'w' sale_type
-             | FROM customer, web_sales, date_dim
+             | FROM ${tablePrefix}customer, ${tablePrefix}web_sales, ${tablePrefix}date_dim
              | WHERE c_customer_sk = ws_bill_customer_sk AND ws_sold_date_sk = d_date_sk
              | GROUP BY c_customer_id,
              |          c_first_name,
@@ -233,7 +241,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
            """.stripMargin),
     // Modifications: "+ days" -> date_add
     // Modifications: "||" -> concat
-    ("q5", """
+    ("q5", s"""
              | WITH ssr AS
              |  (SELECT s_store_id,
              |          sum(sales_price) as sales,
@@ -255,8 +263,8 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |           cast(0 as decimal(7,2)) as profit,
              |           sr_return_amt as return_amt,
              |           sr_net_loss as net_loss
-             |    FROM store_returns)
-             |    salesreturns, date_dim, store
+             |    FROM ${tablePrefix}store_returns)
+             |    salesreturns, ${tablePrefix}date_dim, ${tablePrefix}store
              |  WHERE date_sk = d_date_sk
              |       and d_date between cast('2000-08-23' as date)
              |                  and (date_add(cast('2000-08-23' as date), 14))
@@ -275,7 +283,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |           cs_net_profit as profit,
              |           cast(0 as decimal(7,2)) as return_amt,
              |           cast(0 as decimal(7,2)) as net_loss
-             |    FROM catalog_sales
+             |    FROM ${tablePrefix}catalog_sales
              |    UNION ALL
              |    SELECT cr_catalog_page_sk as page_sk,
              |           cr_returned_date_sk as date_sk,
@@ -283,8 +291,8 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |           cast(0 as decimal(7,2)) as profit,
              |           cr_return_amount as return_amt,
              |           cr_net_loss as net_loss
-             |    from catalog_returns
-             |   ) salesreturns, date_dim, catalog_page
+             |    from ${tablePrefix}catalog_returns
+             |   ) salesreturns, ${tablePrefix}date_dim, ${tablePrefix}catalog_page
              | WHERE date_sk = d_date_sk
              |       and d_date between cast('2000-08-23' as date)
              |                  and (date_add(cast('2000-08-23' as date), 14))
@@ -304,7 +312,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |            ws_net_profit as profit,
              |            cast(0 as decimal(7,2)) as return_amt,
              |            cast(0 as decimal(7,2)) as net_loss
-             |    from web_sales
+             |    from ${tablePrefix}web_sales
              |    union all
              |    select ws_web_site_sk as wsr_web_site_sk,
              |           wr_returned_date_sk as date_sk,
@@ -312,10 +320,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |           cast(0 as decimal(7,2)) as profit,
              |           wr_return_amt as return_amt,
              |           wr_net_loss as net_loss
-             |    FROM web_returns LEFT  OUTER JOIN web_sales on
+             |    FROM ${tablePrefix}web_returns LEFT  OUTER JOIN ${tablePrefix}web_sales on
              |         ( wr_item_sk = ws_item_sk
              |           and wr_order_number = ws_order_number)
-             |   ) salesreturns, date_dim, web_site
+             |   ) salesreturns, ${tablePrefix}date_dim, ${tablePrefix}web_site
              | WHERE date_sk = d_date_sk
              |       and d_date between cast('2000-08-23' as date)
              |                  and (date_add(cast('2000-08-23' as date), 14))
@@ -352,31 +360,31 @@ class TPCDSSelection extends HardcodedQueryProvider {
              | ORDER BY channel, id
              | LIMIT 100
            """.stripMargin),
-    ("q6", """
+    ("q6", s"""
              | SELECT a.ca_state state, count(*) cnt
              | FROM
-             |    customer_address a, customer c, store_sales s, date_dim d, item i
+             |    ${tablePrefix}customer_address a, ${tablePrefix}customer c, ${tablePrefix}store_sales s, ${tablePrefix}date_dim d, ${tablePrefix}item i
              | WHERE a.ca_address_sk = c.c_current_addr_sk
              | 	AND c.c_customer_sk = s.ss_customer_sk
              | 	AND s.ss_sold_date_sk = d.d_date_sk
              | 	AND s.ss_item_sk = i.i_item_sk
              | 	AND d.d_month_seq =
-             | 	     (SELECT distinct (d_month_seq) FROM date_dim
+             | 	     (SELECT distinct (d_month_seq) FROM ${tablePrefix}date_dim
              |        WHERE d_year = 2000 AND d_moy = 1)
              | 	AND i.i_current_price > 1.2 *
-             |             (SELECT avg(j.i_current_price) FROM item j
+             |             (SELECT avg(j.i_current_price) FROM ${tablePrefix}item j
              | 	            WHERE j.i_category = i.i_category)
              | GROUP BY a.ca_state
              | HAVING count(*) >= 10
              | ORDER BY cnt LIMIT 100
            """.stripMargin),
-    ("q7", """
+    ("q7", s"""
              | SELECT i_item_id,
              |        avg(ss_quantity) agg1,
              |        avg(ss_list_price) agg2,
              |        avg(ss_coupon_amt) agg3,
              |        avg(ss_sales_price) agg4
-             | FROM store_sales, customer_demographics, date_dim, item, promotion
+             | FROM ${tablePrefix}store_sales, ${tablePrefix}customer_demographics, ${tablePrefix}date_dim, ${tablePrefix}item, ${tablePrefix}promotion
              | WHERE ss_sold_date_sk = d_date_sk AND
              |       ss_item_sk = i_item_sk AND
              |       ss_cdemo_sk = cd_demo_sk AND
@@ -389,12 +397,12 @@ class TPCDSSelection extends HardcodedQueryProvider {
              | GROUP BY i_item_id
              | ORDER BY i_item_id LIMIT 100
            """.stripMargin),
-    ("q8", """
+    ("q8", s"""
              | select s_store_name, sum(ss_net_profit)
-             | from store_sales, date_dim, store,
+             | from ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}store,
              |     (SELECT ca_zip
              |       from (
-             |       (SELECT substr(ca_zip,1,5) ca_zip FROM customer_address
+             |       (SELECT substr(ca_zip,1,5) ca_zip FROM ${tablePrefix}customer_address
              |          WHERE substr(ca_zip,1,5) IN (
              |               '24128','76232','65084','87816','83926','77556','20548',
              |               '26231','43848','15126','91137','61265','98294','25782',
@@ -458,7 +466,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
              |       (select ca_zip
              |          FROM
              |            (SELECT substr(ca_zip,1,5) ca_zip,count(*) cnt
-             |              FROM customer_address, customer
+             |              FROM ${tablePrefix}customer_address, ${tablePrefix}customer
              |              WHERE ca_address_sk = c_current_addr_sk and
              |                    c_preferred_cust_flag='Y'
              |              group by ca_zip
@@ -473,63 +481,63 @@ class TPCDSSelection extends HardcodedQueryProvider {
              | order by s_store_name LIMIT 100
            """.stripMargin),
     ("q9", s"""
-              |select case when (select count(*) from store_sales
+              |select case when (select count(*) from ${tablePrefix}store_sales
               |                  where ss_quantity between 1 and 20) > ${rc(0)}
-              |            then (select avg(ss_ext_discount_amt) from store_sales
+              |            then (select avg(ss_ext_discount_amt) from ${tablePrefix}store_sales
               |                  where ss_quantity between 1 and 20)
-              |            else (select avg(ss_net_paid) from store_sales
+              |            else (select avg(ss_net_paid) from ${tablePrefix}store_sales
               |                  where ss_quantity between 1 and 20) end bucket1 ,
-              |       case when (select count(*) from store_sales
+              |       case when (select count(*) from ${tablePrefix}store_sales
               |                  where ss_quantity between 21 and 40) > ${rc(1)}
-              |            then (select avg(ss_ext_discount_amt) from store_sales
+              |            then (select avg(ss_ext_discount_amt) from ${tablePrefix}store_sales
               |                  where ss_quantity between 21 and 40)
-              |            else (select avg(ss_net_paid) from store_sales
+              |            else (select avg(ss_net_paid) from ${tablePrefix}store_sales
               |                  where ss_quantity between 21 and 40) end bucket2,
-              |       case when (select count(*) from store_sales
+              |       case when (select count(*) from ${tablePrefix}store_sales
               |                  where ss_quantity between 41 and 60) > ${rc(2)}
-              |            then (select avg(ss_ext_discount_amt) from store_sales
+              |            then (select avg(ss_ext_discount_amt) from ${tablePrefix}store_sales
               |                  where ss_quantity between 41 and 60)
-              |            else (select avg(ss_net_paid) from store_sales
+              |            else (select avg(ss_net_paid) from ${tablePrefix}store_sales
               |                  where ss_quantity between 41 and 60) end bucket3,
-              |       case when (select count(*) from store_sales
+              |       case when (select count(*) from ${tablePrefix}store_sales
               |                  where ss_quantity between 61 and 80) > ${rc(3)}
-              |            then (select avg(ss_ext_discount_amt) from store_sales
+              |            then (select avg(ss_ext_discount_amt) from ${tablePrefix}store_sales
               |                  where ss_quantity between 61 and 80)
-              |            else (select avg(ss_net_paid) from store_sales
+              |            else (select avg(ss_net_paid) from ${tablePrefix}store_sales
               |                  where ss_quantity between 61 and 80) end bucket4,
-              |       case when (select count(*) from store_sales
+              |       case when (select count(*) from ${tablePrefix}store_sales
               |                  where ss_quantity between 81 and 100) > ${rc(4)}
-              |            then (select avg(ss_ext_discount_amt) from store_sales
+              |            then (select avg(ss_ext_discount_amt) from ${tablePrefix}store_sales
               |                  where ss_quantity between 81 and 100)
-              |            else (select avg(ss_net_paid) from store_sales
+              |            else (select avg(ss_net_paid) from ${tablePrefix}store_sales
               |                  where ss_quantity between 81 and 100) end bucket5
-              |from reason
+              |from ${tablePrefix}reason
               |where r_reason_sk = 1
             """.stripMargin),
-    ("q10", """
+    ("q10", s"""
               | select
               |  cd_gender, cd_marital_status, cd_education_status, count(*) cnt1,
               |  cd_purchase_estimate, count(*) cnt2, cd_credit_rating, count(*) cnt3,
               |  cd_dep_count, count(*) cnt4, cd_dep_employed_count,  count(*) cnt5,
               |  cd_dep_college_count, count(*) cnt6
               | from
-              |  customer c, customer_address ca, customer_demographics
+              |  ${tablePrefix}customer c, ${tablePrefix}customer_address ca, ${tablePrefix}customer_demographics
               | where
               |  c.c_current_addr_sk = ca.ca_address_sk and
               |  ca_county in ('Rush County','Toole County','Jefferson County',
               |                'Dona Ana County','La Porte County') and
               |  cd_demo_sk = c.c_current_cdemo_sk AND
-              |  exists (select * from store_sales, date_dim
+              |  exists (select * from ${tablePrefix}store_sales, ${tablePrefix}date_dim
               |          where c.c_customer_sk = ss_customer_sk AND
               |                ss_sold_date_sk = d_date_sk AND
               |                d_year = 2002 AND
               |                d_moy between 1 AND 1+3) AND
-              |   (exists (select * from web_sales, date_dim
+              |   (exists (select * from ${tablePrefix}web_sales, ${tablePrefix}date_dim
               |            where c.c_customer_sk = ws_bill_customer_sk AND
               |                  ws_sold_date_sk = d_date_sk AND
               |                  d_year = 2002 AND
               |                  d_moy between 1 AND 1+3) or
-              |    exists (select * from catalog_sales, date_dim
+              |    exists (select * from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim
               |            where c.c_customer_sk = cs_ship_customer_sk AND
               |                  cs_sold_date_sk = d_date_sk AND
               |                  d_year = 2002 AND
@@ -552,7 +560,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |          cd_dep_college_count
               |LIMIT 100
             """.stripMargin),
-    ("q11", """
+    ("q11", s"""
               | with year_total as (
               | select c_customer_id customer_id
               |       ,c_first_name customer_first_name
@@ -564,7 +572,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |       ,d_year dyear
               |       ,sum(ss_ext_list_price-ss_ext_discount_amt) year_total
               |       ,'s' sale_type
-              | from customer, store_sales, date_dim
+              | from ${tablePrefix}customer, ${tablePrefix}store_sales, ${tablePrefix}date_dim
               | where c_customer_sk = ss_customer_sk
               |   and ss_sold_date_sk = d_date_sk
               | group by c_customer_id
@@ -587,7 +595,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |       ,d_year dyear
               |       ,sum(ws_ext_list_price-ws_ext_discount_amt) year_total
               |       ,'w' sale_type
-              | from customer, web_sales, date_dim
+              | from ${tablePrefix}customer, ${tablePrefix}web_sales, ${tablePrefix}date_dim
               | where c_customer_sk = ws_bill_customer_sk
               |   and ws_sold_date_sk = d_date_sk
               | group by
@@ -618,14 +626,14 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | LIMIT 100
             """.stripMargin),
     // Modifications: "+ days" -> date_add
-    ("q12", """
+    ("q12", s"""
               | select
               |  i_item_desc, i_category, i_class, i_current_price,
               |  sum(ws_ext_sales_price) as itemrevenue,
               |  sum(ws_ext_sales_price)*100/sum(sum(ws_ext_sales_price)) over
               |          (partition by i_class) as revenueratio
               | from
-              |	web_sales, item, date_dim
+              |	${tablePrefix}web_sales, ${tablePrefix}item, ${tablePrefix}date_dim
               | where
               |	ws_item_sk = i_item_sk
               |  	and i_category in ('Sports', 'Books', 'Home')
@@ -638,17 +646,17 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |	i_category, i_class, i_item_id, i_item_desc, revenueratio
               | LIMIT 100
             """.stripMargin),
-    ("q13", """
+    ("q13", s"""
               | select avg(ss_quantity)
               |       ,avg(ss_ext_sales_price)
               |       ,avg(ss_ext_wholesale_cost)
               |       ,sum(ss_ext_wholesale_cost)
-              | from store_sales
-              |     ,store
-              |     ,customer_demographics
-              |     ,household_demographics
-              |     ,customer_address
-              |     ,date_dim
+              | from ${tablePrefix}store_sales
+              |     ,${tablePrefix}store
+              |     ,${tablePrefix}customer_demographics
+              |     ,${tablePrefix}household_demographics
+              |     ,${tablePrefix}customer_address
+              |     ,${tablePrefix}date_dim
               | where s_store_sk = ss_store_sk
               | and  ss_sold_date_sk = d_date_sk and d_year = 2001
               | and((ss_hdemo_sk=hd_demo_sk
@@ -688,24 +696,24 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |  and ss_net_profit between 50 and 250
               |     ))
             """.stripMargin),
-    ("q14a", """
+    ("q14a", s"""
                |with cross_items as
                | (select i_item_sk ss_item_sk
-               | from item,
+               | from ${tablePrefix}item,
                |    (select iss.i_brand_id brand_id, iss.i_class_id class_id, iss.i_category_id category_id
-               |     from store_sales, item iss, date_dim d1
+               |     from ${tablePrefix}store_sales, ${tablePrefix}item iss, ${tablePrefix}date_dim d1
                |     where ss_item_sk = iss.i_item_sk
                     and ss_sold_date_sk = d1.d_date_sk
                |       and d1.d_year between 1999 AND 1999 + 2
                |   intersect
                |     select ics.i_brand_id, ics.i_class_id, ics.i_category_id
-               |     from catalog_sales, item ics, date_dim d2
+               |     from ${tablePrefix}catalog_sales, ${tablePrefix}item ics, ${tablePrefix}date_dim d2
                |     where cs_item_sk = ics.i_item_sk
                |       and cs_sold_date_sk = d2.d_date_sk
                |       and d2.d_year between 1999 AND 1999 + 2
                |   intersect
                |     select iws.i_brand_id, iws.i_class_id, iws.i_category_id
-               |     from web_sales, item iws, date_dim d3
+               |     from ${tablePrefix}web_sales, ${tablePrefix}item iws, ${tablePrefix}date_dim d3
                |     where ws_item_sk = iws.i_item_sk
                |       and ws_sold_date_sk = d3.d_date_sk
                |       and d3.d_year between 1999 AND 1999 + 2) x
@@ -717,17 +725,17 @@ class TPCDSSelection extends HardcodedQueryProvider {
                | (select avg(quantity*list_price) average_sales
                |  from (
                |     select ss_quantity quantity, ss_list_price list_price
-               |     from store_sales, date_dim
+               |     from ${tablePrefix}store_sales, ${tablePrefix}date_dim
                |     where ss_sold_date_sk = d_date_sk
                |       and d_year between 1999 and 2001
                |   union all
                |     select cs_quantity quantity, cs_list_price list_price
-               |     from catalog_sales, date_dim
+               |     from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim
                |     where cs_sold_date_sk = d_date_sk
                |       and d_year between 1999 and 1999 + 2
                |   union all
                |     select ws_quantity quantity, ws_list_price list_price
-               |     from web_sales, date_dim
+               |     from ${tablePrefix}web_sales, ${tablePrefix}date_dim
                |     where ws_sold_date_sk = d_date_sk
                |       and d_year between 1999 and 1999 + 2) x)
                | select channel, i_brand_id,i_class_id,i_category_id,sum(sales), sum(number_sales)
@@ -735,7 +743,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
                |     select 'store' channel, i_brand_id,i_class_id
                |             ,i_category_id,sum(ss_quantity*ss_list_price) sales
                |             , count(*) number_sales
-               |     from store_sales, item, date_dim
+               |     from ${tablePrefix}store_sales, ${tablePrefix}item, ${tablePrefix}date_dim
                |     where ss_item_sk in (select ss_item_sk from cross_items)
                |       and ss_item_sk = i_item_sk
                |       and ss_sold_date_sk = d_date_sk
@@ -745,7 +753,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
                |     having sum(ss_quantity*ss_list_price) > (select average_sales from avg_sales)
                |   union all
                |     select 'catalog' channel, i_brand_id,i_class_id,i_category_id, sum(cs_quantity*cs_list_price) sales, count(*) number_sales
-               |     from catalog_sales, item, date_dim
+               |     from ${tablePrefix}catalog_sales, ${tablePrefix}item, ${tablePrefix}date_dim
                |     where cs_item_sk in (select ss_item_sk from cross_items)
                |       and cs_item_sk = i_item_sk
                |       and cs_sold_date_sk = d_date_sk
@@ -755,7 +763,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
                |     having sum(cs_quantity*cs_list_price) > (select average_sales from avg_sales)
                |   union all
                |     select 'web' channel, i_brand_id,i_class_id,i_category_id, sum(ws_quantity*ws_list_price) sales , count(*) number_sales
-               |     from web_sales, item, date_dim
+               |     from ${tablePrefix}web_sales, ${tablePrefix}item, ${tablePrefix}date_dim
                |     where ws_item_sk in (select ss_item_sk from cross_items)
                |       and ws_item_sk = i_item_sk
                |       and ws_sold_date_sk = d_date_sk
@@ -768,24 +776,24 @@ class TPCDSSelection extends HardcodedQueryProvider {
                | order by channel,i_brand_id,i_class_id,i_category_id
                | limit 100
              """.stripMargin),
-    ("q14b", """
+    ("q14b", s"""
                | with  cross_items as
                | (select i_item_sk ss_item_sk
-               |  from item,
+               |  from ${tablePrefix}item,
                |     (select iss.i_brand_id brand_id, iss.i_class_id class_id, iss.i_category_id category_id
-               |      from store_sales, item iss, date_dim d1
+               |      from ${tablePrefix}store_sales, ${tablePrefix}item iss, ${tablePrefix}date_dim d1
                |      where ss_item_sk = iss.i_item_sk
                |         and ss_sold_date_sk = d1.d_date_sk
                |         and d1.d_year between 1999 AND 1999 + 2
                |     intersect
                |       select ics.i_brand_id, ics.i_class_id, ics.i_category_id
-               |       from catalog_sales, item ics, date_dim d2
+               |       from ${tablePrefix}catalog_sales, ${tablePrefix}item ics, ${tablePrefix}date_dim d2
                |       where cs_item_sk = ics.i_item_sk
                |         and cs_sold_date_sk = d2.d_date_sk
                |         and d2.d_year between 1999 AND 1999 + 2
                |     intersect
                |       select iws.i_brand_id, iws.i_class_id, iws.i_category_id
-               |       from web_sales, item iws, date_dim d3
+               |       from ${tablePrefix}web_sales, ${tablePrefix}item iws, ${tablePrefix}date_dim d3
                |       where ws_item_sk = iws.i_item_sk
                |         and ws_sold_date_sk = d3.d_date_sk
                |         and d3.d_year between 1999 AND 1999 + 2) x
@@ -796,34 +804,34 @@ class TPCDSSelection extends HardcodedQueryProvider {
                | avg_sales as
                | (select avg(quantity*list_price) average_sales
                |  from (select ss_quantity quantity, ss_list_price list_price
-               |         from store_sales, date_dim
+               |         from ${tablePrefix}store_sales, ${tablePrefix}date_dim
                |         where ss_sold_date_sk = d_date_sk and d_year between 1999 and 1999 + 2
                |       union all
                |         select cs_quantity quantity, cs_list_price list_price
-               |         from catalog_sales, date_dim
+               |         from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim
                |         where cs_sold_date_sk = d_date_sk and d_year between 1999 and 1999 + 2
                |       union all
                |         select ws_quantity quantity, ws_list_price list_price
-               |         from web_sales, date_dim
+               |         from ${tablePrefix}web_sales, ${tablePrefix}date_dim
                |         where ws_sold_date_sk = d_date_sk and d_year between 1999 and 1999 + 2) x)
                | select * from
                | (select 'store' channel, i_brand_id,i_class_id,i_category_id
                |        ,sum(ss_quantity*ss_list_price) sales, count(*) number_sales
-               |  from store_sales, item, date_dim
+               |  from ${tablePrefix}store_sales, ${tablePrefix}item, ${tablePrefix}date_dim
                |  where ss_item_sk in (select ss_item_sk from cross_items)
                |    and ss_item_sk = i_item_sk
                |    and ss_sold_date_sk = d_date_sk
-               |    and d_week_seq = (select d_week_seq from date_dim
+               |    and d_week_seq = (select d_week_seq from ${tablePrefix}date_dim
                |                     where d_year = 1999 + 1 and d_moy = 12 and d_dom = 11)
                |  group by i_brand_id,i_class_id,i_category_id
                |  having sum(ss_quantity*ss_list_price) > (select average_sales from avg_sales)) this_year,
                | (select 'store' channel, i_brand_id,i_class_id
                |        ,i_category_id, sum(ss_quantity*ss_list_price) sales, count(*) number_sales
-               | from store_sales, item, date_dim
+               | from ${tablePrefix}store_sales, ${tablePrefix}item, ${tablePrefix}date_dim
                | where ss_item_sk in (select ss_item_sk from cross_items)
                |   and ss_item_sk = i_item_sk
                |   and ss_sold_date_sk = d_date_sk
-               |   and d_week_seq = (select d_week_seq from date_dim
+               |   and d_week_seq = (select d_week_seq from ${tablePrefix}date_dim
                |                     where d_year = 1999 and d_moy = 12 and d_dom = 11)
                | group by i_brand_id,i_class_id,i_category_id
                | having sum(ss_quantity*ss_list_price) > (select average_sales from avg_sales)) last_year
@@ -833,9 +841,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
                | order by this_year.channel, this_year.i_brand_id, this_year.i_class_id, this_year.i_category_id
                | limit 100
              """.stripMargin),
-    ("q15", """
+    ("q15", s"""
               | select ca_zip, sum(cs_sales_price)
-              | from catalog_sales, customer, customer_address, date_dim
+              | from ${tablePrefix}catalog_sales, ${tablePrefix}customer, ${tablePrefix}customer_address, ${tablePrefix}date_dim
               | where cs_bill_customer_sk = c_customer_sk
               | 	and c_current_addr_sk = ca_address_sk
               | 	and ( substr(ca_zip,1,5) in ('85669', '86197','88274','83405','86475',
@@ -849,13 +857,13 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | limit 100
             """.stripMargin),
     // Modifications: " -> `
-    ("q16", """
+    ("q16", s"""
               | select
               |   count(distinct cs_order_number) as `order count`,
               |   sum(cs_ext_ship_cost) as `total shipping cost`,
               |   sum(cs_net_profit) as `total net profit`
               | from
-              |   catalog_sales cs1, date_dim, customer_address, call_center
+              |   ${tablePrefix}catalog_sales cs1, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}call_center
               | where
               |   d_date between '2002-2-01' and (cast('2002-2-01' as date) + 60)
               | and cs1.cs_ship_date_sk = d_date_sk
@@ -864,16 +872,16 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | and cs1.cs_call_center_sk = cc_call_center_sk
               | and cc_county in ('Williamson County','Williamson County','Williamson County','Williamson County', 'Williamson County')
               | and exists (select *
-              |            from catalog_sales cs2
+              |            from ${tablePrefix}catalog_sales cs2
               |            where cs1.cs_order_number = cs2.cs_order_number
               |              and cs1.cs_warehouse_sk <> cs2.cs_warehouse_sk)
               | and not exists(select *
-              |               from catalog_returns cr1
+              |               from ${tablePrefix}catalog_returns cr1
               |               where cs1.cs_order_number = cr1.cr_order_number)
               | order by count(distinct cs_order_number)
               | limit 100
             """.stripMargin),
-    ("q17", """
+    ("q17", s"""
               | select i_item_id
               |       ,i_item_desc
               |       ,s_state
@@ -888,7 +896,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |       ,count(cs_quantity) as catalog_sales_quantitycount ,avg(cs_quantity) as catalog_sales_quantityave
               |       ,stddev_samp(cs_quantity)/avg(cs_quantity) as catalog_sales_quantitystdev
               |       ,stddev_samp(cs_quantity)/avg(cs_quantity) as catalog_sales_quantitycov
-              | from store_sales, store_returns, catalog_sales, date_dim d1, date_dim d2, date_dim d3, store, item
+              | from ${tablePrefix}store_sales, ${tablePrefix}store_returns, ${tablePrefix}catalog_sales, ${tablePrefix}date_dim d1, ${tablePrefix}date_dim d2, ${tablePrefix}date_dim d3, ${tablePrefix}store, ${tablePrefix}item
               | where d1.d_quarter_name = '2001Q1'
               |   and d1.d_date_sk = ss_sold_date_sk
               |   and i_item_sk = ss_item_sk
@@ -907,7 +915,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | limit 100
             """.stripMargin),
     // Modifications: "numeric" -> "decimal"
-    ("q18", """
+    ("q18", s"""
               | select i_item_id,
               |        ca_country,
               |        ca_state,
@@ -919,8 +927,8 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |        avg( cast(cs_net_profit as decimal(12,2))) agg5,
               |        avg( cast(c_birth_year as decimal(12,2))) agg6,
               |        avg( cast(cd1.cd_dep_count as decimal(12,2))) agg7
-              | from catalog_sales, customer_demographics cd1,
-              |      customer_demographics cd2, customer, customer_address, date_dim, item
+              | from ${tablePrefix}catalog_sales, ${tablePrefix}customer_demographics cd1,
+              |      ${tablePrefix}customer_demographics cd2, ${tablePrefix}customer, ${tablePrefix}customer_address, ${tablePrefix}date_dim, ${tablePrefix}item
               | where cs_sold_date_sk = d_date_sk and
               |       cs_item_sk = i_item_sk and
               |       cs_bill_cdemo_sk = cd1.cd_demo_sk and
@@ -936,10 +944,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by ca_country, ca_state, ca_county, i_item_id
               | LIMIT 100
             """.stripMargin),
-    ("q19", """
+    ("q19", s"""
               | select i_brand_id brand_id, i_brand brand, i_manufact_id, i_manufact,
               | 	sum(ss_ext_sales_price) ext_price
-              | from date_dim, store_sales, item,customer,customer_address,store
+              | from ${tablePrefix}date_dim, ${tablePrefix}store_sales, ${tablePrefix}item,${tablePrefix}customer,${tablePrefix}customer_address,${tablePrefix}store
               | where d_date_sk = ss_sold_date_sk
               |   and ss_item_sk = i_item_sk
               |   and i_manager_id = 8
@@ -953,7 +961,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by ext_price desc, brand, brand_id, i_manufact_id, i_manufact
               | limit 100
             """.stripMargin),
-    ("q20", """
+    ("q20", s"""
               |select i_item_desc
               |       ,i_category
               |       ,i_class
@@ -961,7 +969,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |       ,sum(cs_ext_sales_price) as itemrevenue
               |       ,sum(cs_ext_sales_price)*100/sum(sum(cs_ext_sales_price)) over
               |           (partition by i_class) as revenueratio
-              | from catalog_sales, item, date_dim
+              | from ${tablePrefix}catalog_sales, ${tablePrefix}item, ${tablePrefix}date_dim
               | where cs_item_sk = i_item_sk
               |   and i_category in ('Sports', 'Books', 'Home')
               |   and cs_sold_date_sk = d_date_sk
@@ -972,7 +980,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | limit 100
             """.stripMargin),
     // Modifications: "+ days" -> date_add
-    ("q21", """
+    ("q21", s"""
               | select * from(
               |   select w_warehouse_name, i_item_id,
               |          sum(case when (cast(d_date as date) < cast ('2000-03-11' as date))
@@ -981,7 +989,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |          sum(case when (cast(d_date as date) >= cast ('2000-03-11' as date))
               |                   then inv_quantity_on_hand
               |                   else 0 end) as inv_after
-              |   from inventory, warehouse, item, date_dim
+              |   from ${tablePrefix}inventory, ${tablePrefix}warehouse, ${tablePrefix}item, ${tablePrefix}date_dim
               |   where i_current_price between 0.99 and 1.49
               |     and i_item_sk          = inv_item_sk
               |     and inv_warehouse_sk   = w_warehouse_sk
@@ -996,9 +1004,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by w_warehouse_name, i_item_id
               | limit 100
             """.stripMargin),
-    ("q22", """
+    ("q22", s"""
               | select i_product_name, i_brand, i_class, i_category, avg(inv_quantity_on_hand) qoh
-              |       from inventory, date_dim, item, warehouse
+              |       from ${tablePrefix}inventory, ${tablePrefix}date_dim, ${tablePrefix}item, ${tablePrefix}warehouse
               |       where inv_date_sk=d_date_sk
               |              and inv_item_sk=i_item_sk
               |              and inv_warehouse_sk = w_warehouse_sk
@@ -1007,10 +1015,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by qoh, i_product_name, i_brand, i_class, i_category
               | limit 100
             """.stripMargin),
-    ("q23a", """
+    ("q23a", s"""
                | with frequent_ss_items as
                | (select substr(i_item_desc,1,30) itemdesc,i_item_sk item_sk,d_date solddate,count(*) cnt
-               |  from store_sales, date_dim, item
+               |  from ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}item
                |  where ss_sold_date_sk = d_date_sk
                |    and ss_item_sk = i_item_sk
                |    and d_year in (2000, 2000+1, 2000+2,2000+3)
@@ -1019,21 +1027,21 @@ class TPCDSSelection extends HardcodedQueryProvider {
                | max_store_sales as
                | (select max(csales) tpcds_cmax
                |  from (select c_customer_sk,sum(ss_quantity*ss_sales_price) csales
-               |        from store_sales, customer, date_dim
+               |        from ${tablePrefix}store_sales, ${tablePrefix}customer, ${tablePrefix}date_dim
                |        where ss_customer_sk = c_customer_sk
                |         and ss_sold_date_sk = d_date_sk
                |         and d_year in (2000, 2000+1, 2000+2,2000+3)
                |        group by c_customer_sk) x),
                | best_ss_customer as
                | (select c_customer_sk,sum(ss_quantity*ss_sales_price) ssales
-               |  from store_sales, customer
+               |  from ${tablePrefix}store_sales, ${tablePrefix}customer
                |  where ss_customer_sk = c_customer_sk
                |  group by c_customer_sk
                |  having sum(ss_quantity*ss_sales_price) > (50/100.0) *
                |    (select * from max_store_sales))
                | select sum(sales)
                | from ((select cs_quantity*cs_list_price sales
-               |       from catalog_sales, date_dim
+               |       from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim
                |       where d_year = 2000
                |         and d_moy = 2
                |         and cs_sold_date_sk = d_date_sk
@@ -1041,7 +1049,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
                |         and cs_bill_customer_sk in (select c_customer_sk from best_ss_customer))
                |      union all
                |      (select ws_quantity*ws_list_price sales
-               |       from web_sales, date_dim
+               |       from ${tablePrefix}web_sales, ${tablePrefix}date_dim
                |       where d_year = 2000
                |         and d_moy = 2
                |         and ws_sold_date_sk = d_date_sk
@@ -1049,11 +1057,11 @@ class TPCDSSelection extends HardcodedQueryProvider {
                |         and ws_bill_customer_sk in (select c_customer_sk from best_ss_customer))) y
                | limit 100;
              """.stripMargin),
-    ("q23b", """
+    ("q23b", s"""
                |
                | with frequent_ss_items as
                | (select substr(i_item_desc,1,30) itemdesc,i_item_sk item_sk,d_date solddate,count(*) cnt
-               |  from store_sales, date_dim, item
+               |  from ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}item
                |  where ss_sold_date_sk = d_date_sk
                |    and ss_item_sk = i_item_sk
                |    and d_year in (2000, 2000+1, 2000+2,2000+3)
@@ -1062,22 +1070,22 @@ class TPCDSSelection extends HardcodedQueryProvider {
                | max_store_sales as
                | (select max(csales) tpcds_cmax
                |  from (select c_customer_sk,sum(ss_quantity*ss_sales_price) csales
-               |        from store_sales, customer, date_dim
+               |        from ${tablePrefix}store_sales, ${tablePrefix}customer, ${tablePrefix}date_dim
                |        where ss_customer_sk = c_customer_sk
                |         and ss_sold_date_sk = d_date_sk
                |         and d_year in (2000, 2000+1, 2000+2,2000+3)
                |        group by c_customer_sk) x),
                | best_ss_customer as
                | (select c_customer_sk,sum(ss_quantity*ss_sales_price) ssales
-               |  from store_sales
-               |      ,customer
+               |  from ${tablePrefix}store_sales
+               |      ,${tablePrefix}customer
                |  where ss_customer_sk = c_customer_sk
                |  group by c_customer_sk
                |  having sum(ss_quantity*ss_sales_price) > (50/100.0) *
                |    (select * from max_store_sales))
                | select c_last_name,c_first_name,sales
                | from ((select c_last_name,c_first_name,sum(cs_quantity*cs_list_price) sales
-               |        from catalog_sales, customer, date_dim
+               |        from ${tablePrefix}catalog_sales, ${tablePrefix}customer, ${tablePrefix}date_dim
                |        where d_year = 2000
                |         and d_moy = 2
                |         and cs_sold_date_sk = d_date_sk
@@ -1087,7 +1095,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
                |       group by c_last_name,c_first_name)
                |      union all
                |      (select c_last_name,c_first_name,sum(ws_quantity*ws_list_price) sales
-               |       from web_sales, customer, date_dim
+               |       from ${tablePrefix}web_sales, ${tablePrefix}customer, ${tablePrefix}date_dim
                |       where d_year = 2000
                |         and d_moy = 2
                |         and ws_sold_date_sk = d_date_sk
@@ -1098,11 +1106,11 @@ class TPCDSSelection extends HardcodedQueryProvider {
                |     order by c_last_name,c_first_name,sales
                | limit 100
              """.stripMargin),
-    ("q24a", """
+    ("q24a", s"""
                | with ssales as
                | (select c_last_name, c_first_name, s_store_name, ca_state, s_state, i_color,
                |        i_current_price, i_manager_id, i_units, i_size, sum(ss_net_paid) netpaid
-               | from store_sales, store_returns, store, item, customer, customer_address
+               | from ${tablePrefix}store_sales, ${tablePrefix}store_returns, ${tablePrefix}store, ${tablePrefix}item, ${tablePrefix}customer, ${tablePrefix}customer_address
                | where ss_ticket_number = sr_ticket_number
                |   and ss_item_sk = sr_item_sk
                |   and ss_customer_sk = c_customer_sk
@@ -1119,11 +1127,11 @@ class TPCDSSelection extends HardcodedQueryProvider {
                | group by c_last_name, c_first_name, s_store_name
                | having sum(netpaid) > (select 0.05*avg(netpaid) from ssales)
              """.stripMargin),
-    ("q24b", """
+    ("q24b", s"""
                | with ssales as
                | (select c_last_name, c_first_name, s_store_name, ca_state, s_state, i_color,
                |         i_current_price, i_manager_id, i_units, i_size, sum(ss_net_paid) netpaid
-               | from store_sales, store_returns, store, item, customer, customer_address
+               | from ${tablePrefix}store_sales, ${tablePrefix}store_returns, ${tablePrefix}store, ${tablePrefix}item, ${tablePrefix}customer, ${tablePrefix}customer_address
                | where ss_ticket_number = sr_ticket_number
                |   and ss_item_sk = sr_item_sk
                |   and ss_customer_sk = c_customer_sk
@@ -1140,14 +1148,14 @@ class TPCDSSelection extends HardcodedQueryProvider {
                | group by c_last_name, c_first_name, s_store_name
                | having sum(netpaid) > (select 0.05*avg(netpaid) from ssales)
              """.stripMargin),
-    ("q25", """
+    ("q25", s"""
               | select i_item_id, i_item_desc, s_store_id, s_store_name,
               |    sum(ss_net_profit) as store_sales_profit,
               |    sum(sr_net_loss) as store_returns_loss,
               |    sum(cs_net_profit) as catalog_sales_profit
               | from
-              |    store_sales, store_returns, catalog_sales, date_dim d1, date_dim d2, date_dim d3,
-              |    store, item
+              |    ${tablePrefix}store_sales, ${tablePrefix}store_returns, ${tablePrefix}catalog_sales, ${tablePrefix}date_dim d1, ${tablePrefix}date_dim d2, ${tablePrefix}date_dim d3,
+              |    ${tablePrefix}store, ${tablePrefix}item
               | where
               |    d1.d_moy = 4
               |    and d1.d_year = 2001
@@ -1171,13 +1179,13 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    i_item_id, i_item_desc, s_store_id, s_store_name
               | limit 100
             """.stripMargin),
-    ("q26", """
+    ("q26", s"""
               | select i_item_id,
               |        avg(cs_quantity) agg1,
               |        avg(cs_list_price) agg2,
               |        avg(cs_coupon_amt) agg3,
               |        avg(cs_sales_price) agg4
-              | from catalog_sales, customer_demographics, date_dim, item, promotion
+              | from ${tablePrefix}catalog_sales, ${tablePrefix}customer_demographics, ${tablePrefix}date_dim, ${tablePrefix}item, ${tablePrefix}promotion
               | where cs_sold_date_sk = d_date_sk and
               |       cs_item_sk = i_item_sk and
               |       cs_bill_cdemo_sk = cd_demo_sk and
@@ -1191,14 +1199,14 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by i_item_id
               | limit 100
             """.stripMargin),
-    ("q27", """
+    ("q27", s"""
               | select i_item_id,
               |        s_state, grouping(s_state) g_state,
               |        avg(ss_quantity) agg1,
               |        avg(ss_list_price) agg2,
               |        avg(ss_coupon_amt) agg3,
               |        avg(ss_sales_price) agg4
-              | from store_sales, customer_demographics, date_dim, store, item
+              | from ${tablePrefix}store_sales, ${tablePrefix}customer_demographics, ${tablePrefix}date_dim, ${tablePrefix}store, ${tablePrefix}item
               | where ss_sold_date_sk = d_date_sk and
               |       ss_item_sk = i_item_sk and
               |       ss_store_sk = s_store_sk and
@@ -1212,12 +1220,12 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by i_item_id, s_state
               | limit 100
             """.stripMargin),
-    ("q28", """
+    ("q28", s"""
               | select *
               | from (select avg(ss_list_price) B1_LP
               |            ,count(ss_list_price) B1_CNT
               |            ,count(distinct ss_list_price) B1_CNTD
-              |      from store_sales
+              |      from ${tablePrefix}store_sales
               |      where ss_quantity between 0 and 5
               |        and (ss_list_price between 8 and 8+10
               |             or ss_coupon_amt between 459 and 459+1000
@@ -1225,7 +1233,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |     (select avg(ss_list_price) B2_LP
               |            ,count(ss_list_price) B2_CNT
               |            ,count(distinct ss_list_price) B2_CNTD
-              |      from store_sales
+              |      from ${tablePrefix}store_sales
               |      where ss_quantity between 6 and 10
               |        and (ss_list_price between 90 and 90+10
               |             or ss_coupon_amt between 2323 and 2323+1000
@@ -1233,7 +1241,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |     (select avg(ss_list_price) B3_LP
               |            ,count(ss_list_price) B3_CNT
               |            ,count(distinct ss_list_price) B3_CNTD
-              |      from store_sales
+              |      from ${tablePrefix}store_sales
               |      where ss_quantity between 11 and 15
               |        and (ss_list_price between 142 and 142+10
               |             or ss_coupon_amt between 12214 and 12214+1000
@@ -1241,7 +1249,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |     (select avg(ss_list_price) B4_LP
               |            ,count(ss_list_price) B4_CNT
               |            ,count(distinct ss_list_price) B4_CNTD
-              |      from store_sales
+              |      from ${tablePrefix}store_sales
               |      where ss_quantity between 16 and 20
               |        and (ss_list_price between 135 and 135+10
               |             or ss_coupon_amt between 6071 and 6071+1000
@@ -1249,7 +1257,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |     (select avg(ss_list_price) B5_LP
               |            ,count(ss_list_price) B5_CNT
               |            ,count(distinct ss_list_price) B5_CNTD
-              |      from store_sales
+              |      from ${tablePrefix}store_sales
               |      where ss_quantity between 21 and 25
               |        and (ss_list_price between 122 and 122+10
               |             or ss_coupon_amt between 836 and 836+1000
@@ -1257,14 +1265,14 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |     (select avg(ss_list_price) B6_LP
               |            ,count(ss_list_price) B6_CNT
               |            ,count(distinct ss_list_price) B6_CNTD
-              |      from store_sales
+              |      from ${tablePrefix}store_sales
               |      where ss_quantity between 26 and 30
               |        and (ss_list_price between 154 and 154+10
               |             or ss_coupon_amt between 7326 and 7326+1000
               |             or ss_wholesale_cost between 7 and 7+20)) B6
               | limit 100
             """.stripMargin),
-    ("q29", """
+    ("q29", s"""
               | select
               |     i_item_id
               |    ,i_item_desc
@@ -1274,8 +1282,8 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    ,sum(sr_return_quantity) as store_returns_quantity
               |    ,sum(cs_quantity)        as catalog_sales_quantity
               | from
-              |    store_sales, store_returns, catalog_sales, date_dim d1, date_dim d2,
-              |    date_dim d3, store, item
+              |    ${tablePrefix}store_sales, ${tablePrefix}store_returns, ${tablePrefix}catalog_sales, ${tablePrefix}date_dim d1, ${tablePrefix}date_dim d2,
+              |    ${tablePrefix}date_dim d3, ${tablePrefix}store, ${tablePrefix}item
               | where
               |     d1.d_moy               = 9
               | and d1.d_year              = 1999
@@ -1298,12 +1306,12 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    i_item_id, i_item_desc, s_store_id, s_store_name
               | limit 100
             """.stripMargin),
-    ("q30", """
+    ("q30", s"""
               | with customer_total_return as
               | (select wr_returning_customer_sk as ctr_customer_sk
               |        ,ca_state as ctr_state,
               | 	sum(wr_return_amt) as ctr_total_return
-              | from web_returns, date_dim, customer_address
+              | from ${tablePrefix}web_returns, ${tablePrefix}date_dim, ${tablePrefix}customer_address
               | where wr_returned_date_sk = d_date_sk
               |   and d_year = 2002
               |   and wr_returning_addr_sk = ca_address_sk
@@ -1311,7 +1319,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | select c_customer_id,c_salutation,c_first_name,c_last_name,c_preferred_cust_flag
               |       ,c_birth_day,c_birth_month,c_birth_year,c_birth_country,c_login,c_email_address
               |       ,c_last_review_date,ctr_total_return
-              | from customer_total_return ctr1, customer_address, customer
+              | from customer_total_return ctr1, ${tablePrefix}customer_address, ${tablePrefix}customer
               | where ctr1.ctr_total_return > (select avg(ctr_total_return)*1.2
               | 			  from customer_total_return ctr2
               |                  	  where ctr1.ctr_state = ctr2.ctr_state)
@@ -1323,16 +1331,16 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |                  ,c_last_review_date,ctr_total_return
               | limit 100
             """.stripMargin),
-    ("q31", """
+    ("q31", s"""
               | with ss as
               | (select ca_county,d_qoy, d_year,sum(ss_ext_sales_price) as store_sales
-              | from store_sales,date_dim,customer_address
+              | from ${tablePrefix}store_sales,${tablePrefix}date_dim,${tablePrefix}customer_address
               | where ss_sold_date_sk = d_date_sk
               |  and ss_addr_sk=ca_address_sk
               | group by ca_county,d_qoy, d_year),
               | ws as
               | (select ca_county,d_qoy, d_year,sum(ws_ext_sales_price) as web_sales
-              | from web_sales,date_dim,customer_address
+              | from ${tablePrefix}web_sales,${tablePrefix}date_dim,${tablePrefix}customer_address
               | where ws_sold_date_sk = d_date_sk
               |  and ws_bill_addr_sk=ca_address_sk
               | group by ca_county,d_qoy, d_year)
@@ -1370,10 +1378,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by ss1.ca_county
             """.stripMargin),
     // Modifications: " -> `
-    ("q32", """
+    ("q32", s"""
               | select sum(cs_ext_discount_amt) as `excess discount amount`
               | from
-              |    catalog_sales, item, date_dim
+              |    ${tablePrefix}catalog_sales, ${tablePrefix}item, ${tablePrefix}date_dim
               | where
               |   i_manufact_id = 977
               |   and i_item_sk = cs_item_sk
@@ -1381,21 +1389,21 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |   and d_date_sk = cs_sold_date_sk
               |   and cs_ext_discount_amt > (
               |          select 1.3 * avg(cs_ext_discount_amt)
-              |          from catalog_sales, date_dim
+              |          from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim
               |          where cs_item_sk = i_item_sk
               |           and d_date between '2000-01-27]' and (cast('2000-01-27' as date) + 90 days)
               |           and d_date_sk = cs_sold_date_sk)
               |limit 100
             """.stripMargin),
-    ("q33", """
+    ("q33", s"""
               | with ss as (
               |    select
               |        i_manufact_id,sum(ss_ext_sales_price) total_sales
               |    from
-              | 	      store_sales, date_dim, customer_address, item
+              | 	      ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}item
               |    where
               |        i_manufact_id in (select i_manufact_id
-              |                          from item
+              |                          from ${tablePrefix}item
               |                          where i_category in ('Electronics'))
               |                            and ss_item_sk = i_item_sk
               |                            and ss_sold_date_sk = d_date_sk
@@ -1405,10 +1413,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |                            and ca_gmt_offset = -5
               |                          group by i_manufact_id), cs as
               |         (select i_manufact_id, sum(cs_ext_sales_price) total_sales
-              |          from catalog_sales, date_dim, customer_address, item
+              |          from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}item
               |          where
               |            i_manufact_id in (
-              |                select i_manufact_id from item
+              |                select i_manufact_id from ${tablePrefix}item
               |                where
               |                    i_category in ('Electronics'))
               |                    and cs_item_sk = i_item_sk
@@ -1421,9 +1429,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | ws as (
               | select i_manufact_id,sum(ws_ext_sales_price) total_sales
               | from
-              | 	  web_sales, date_dim, customer_address, item
+              | 	  ${tablePrefix}web_sales, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}item
               | where
-              |    i_manufact_id in (select i_manufact_id from item
+              |    i_manufact_id in (select i_manufact_id from ${tablePrefix}item
               |                      where i_category in ('Electronics'))
               |                          and ws_item_sk = i_item_sk
               |                          and ws_sold_date_sk = d_date_sk
@@ -1442,32 +1450,32 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by total_sales
               |limit 100
             """.stripMargin),
-    ("q34", """
+    ("q34", s"""
               | select c_last_name, c_first_name, c_salutation, c_preferred_cust_flag, ss_ticket_number,
               |        cnt
               | FROM
               |   (select ss_ticket_number, ss_customer_sk, count(*) cnt
-              |    from store_sales,date_dim,store,household_demographics
-              |    where store_sales.ss_sold_date_sk = date_dim.d_date_sk
-              |    and store_sales.ss_store_sk = store.s_store_sk
-              |    and store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
-              |    and (date_dim.d_dom between 1 and 3 or date_dim.d_dom between 25 and 28)
-              |    and (household_demographics.hd_buy_potential = '>10000' or
-              |         household_demographics.hd_buy_potential = 'unknown')
-              |    and household_demographics.hd_vehicle_count > 0
-              |    and (case when household_demographics.hd_vehicle_count > 0
-              |	then household_demographics.hd_dep_count/ household_demographics.hd_vehicle_count
+              |    from ${tablePrefix}store_sales,${tablePrefix}date_dim,${tablePrefix}store,${tablePrefix}household_demographics
+              |    where ${tablePrefix}store_sales.ss_sold_date_sk = ${tablePrefix}date_dim.d_date_sk
+              |    and ${tablePrefix}store_sales.ss_store_sk = ${tablePrefix}store.s_store_sk
+              |    and ${tablePrefix}store_sales.ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
+              |    and (${tablePrefix}date_dim.d_dom between 1 and 3 or ${tablePrefix}date_dim.d_dom between 25 and 28)
+              |    and (${tablePrefix}household_demographics.hd_buy_potential = '>10000' or
+              |         ${tablePrefix}household_demographics.hd_buy_potential = 'unknown')
+              |    and ${tablePrefix}household_demographics.hd_vehicle_count > 0
+              |    and (case when ${tablePrefix}household_demographics.hd_vehicle_count > 0
+              |	then ${tablePrefix}household_demographics.hd_dep_count/ ${tablePrefix}household_demographics.hd_vehicle_count
               |	else null
               |	end)  > 1.2
-              |    and date_dim.d_year in (1999, 1999+1, 1999+2)
-              |    and store.s_county in ('Williamson County','Williamson County','Williamson County','Williamson County',
+              |    and ${tablePrefix}date_dim.d_year in (1999, 1999+1, 1999+2)
+              |    and ${tablePrefix}store.s_county in ('Williamson County','Williamson County','Williamson County','Williamson County',
               |                           'Williamson County','Williamson County','Williamson County','Williamson County')
-              |    group by ss_ticket_number,ss_customer_sk) dn,customer
+              |    group by ss_ticket_number,ss_customer_sk) dn,${tablePrefix}customer
               |    where ss_customer_sk = c_customer_sk
               |      and cnt between 15 and 20
               |    order by c_last_name,c_first_name,c_salutation,c_preferred_cust_flag desc
             """.stripMargin),
-    ("q35", """
+    ("q35", s"""
               | select
               |  ca_state,
               |  cd_gender,
@@ -1487,21 +1495,21 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |  max(cd_dep_college_count),
               |  avg(cd_dep_college_count)
               | from
-              |  customer c,customer_address ca,customer_demographics
+              |  ${tablePrefix}customer c,${tablePrefix}customer_address ca,${tablePrefix}customer_demographics
               | where
               |  c.c_current_addr_sk = ca.ca_address_sk and
               |  cd_demo_sk = c.c_current_cdemo_sk and
-              |  exists (select * from store_sales, date_dim
+              |  exists (select * from ${tablePrefix}store_sales, ${tablePrefix}date_dim
               |          where c.c_customer_sk = ss_customer_sk and
               |                ss_sold_date_sk = d_date_sk and
               |                d_year = 2002 and
               |                d_qoy < 4) and
-              |   (exists (select * from web_sales, date_dim
+              |   (exists (select * from ${tablePrefix}web_sales, ${tablePrefix}date_dim
               |            where c.c_customer_sk = ws_bill_customer_sk and
               |                  ws_sold_date_sk = d_date_sk and
               |                  d_year = 2002 and
               |                  d_qoy < 4) or
-              |    exists (select * from catalog_sales, date_dim
+              |    exists (select * from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim
               |            where c.c_customer_sk = cs_ship_customer_sk and
               |                  cs_sold_date_sk = d_date_sk and
               |                  d_year = 2002 and
@@ -1512,7 +1520,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |          cd_dep_employed_count, cd_dep_college_count
               | limit 100
             """.stripMargin),
-    ("q36", """
+    ("q36", s"""
               | select
               |    sum(ss_net_profit)/sum(ss_ext_sales_price) as gross_margin
               |   ,i_category
@@ -1523,7 +1531,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | 	case when grouping(i_class) = 0 then i_category end
               | 	order by sum(ss_net_profit)/sum(ss_ext_sales_price) asc) as rank_within_parent
               | from
-              |    store_sales, date_dim d1, item, store
+              |    ${tablePrefix}store_sales, ${tablePrefix}date_dim d1, ${tablePrefix}item, ${tablePrefix}store
               | where
               |    d1.d_year = 2001
               |    and d1.d_date_sk = ss_sold_date_sk
@@ -1538,9 +1546,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | limit 100
             """.stripMargin),
     // Modifications: "+ days" -> date_add
-    ("q37", """
+    ("q37", s"""
               | select i_item_id, i_item_desc, i_current_price
-              | from item, inventory, date_dim, catalog_sales
+              | from ${tablePrefix}item, ${tablePrefix}inventory, ${tablePrefix}date_dim, ${tablePrefix}catalog_sales
               | where i_current_price between 68 and 68 + 30
               |   and inv_item_sk = i_item_sk
               |   and d_date_sk=inv_date_sk
@@ -1552,35 +1560,35 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by i_item_id
               | limit 100
             """.stripMargin),
-    ("q38", """
+    ("q38", s"""
               | select count(*) from (
               |    select distinct c_last_name, c_first_name, d_date
-              |    from store_sales, date_dim, customer
-              |          where store_sales.ss_sold_date_sk = date_dim.d_date_sk
-              |      and store_sales.ss_customer_sk = customer.c_customer_sk
+              |    from ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}customer
+              |          where ${tablePrefix}store_sales.ss_sold_date_sk = ${tablePrefix}date_dim.d_date_sk
+              |      and ${tablePrefix}store_sales.ss_customer_sk = ${tablePrefix}customer.c_customer_sk
               |      and d_month_seq between 1200 and  1200 + 11
               |  intersect
               |    select distinct c_last_name, c_first_name, d_date
-              |    from catalog_sales, date_dim, customer
-              |          where catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
-              |      and catalog_sales.cs_bill_customer_sk = customer.c_customer_sk
+              |    from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim, ${tablePrefix}customer
+              |          where ${tablePrefix}catalog_sales.cs_sold_date_sk = ${tablePrefix}date_dim.d_date_sk
+              |      and ${tablePrefix}catalog_sales.cs_bill_customer_sk = ${tablePrefix}customer.c_customer_sk
               |      and d_month_seq between  1200 and  1200 + 11
               |  intersect
               |    select distinct c_last_name, c_first_name, d_date
-              |    from web_sales, date_dim, customer
-              |          where web_sales.ws_sold_date_sk = date_dim.d_date_sk
-              |      and web_sales.ws_bill_customer_sk = customer.c_customer_sk
+              |    from ${tablePrefix}web_sales, ${tablePrefix}date_dim, ${tablePrefix}customer
+              |          where ${tablePrefix}web_sales.ws_sold_date_sk = ${tablePrefix}date_dim.d_date_sk
+              |      and ${tablePrefix}web_sales.ws_bill_customer_sk = ${tablePrefix}customer.c_customer_sk
               |      and d_month_seq between  1200 and  1200 + 11
               | ) hot_cust
               | limit 100
             """.stripMargin),
-    ("q39a", """
+    ("q39a", s"""
                | with inv as
                | (select w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy
                |        ,stdev,mean, case mean when 0 then null else stdev/mean end cov
                |  from(select w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy
                |             ,stddev_samp(inv_quantity_on_hand) stdev,avg(inv_quantity_on_hand) mean
-               |       from inventory, item, warehouse, date_dim
+               |       from ${tablePrefix}inventory, ${tablePrefix}item, ${tablePrefix}warehouse, ${tablePrefix}date_dim
                |       where inv_item_sk = i_item_sk
                |         and inv_warehouse_sk = w_warehouse_sk
                |         and inv_date_sk = d_date_sk
@@ -1597,13 +1605,13 @@ class TPCDSSelection extends HardcodedQueryProvider {
                | order by inv1.w_warehouse_sk,inv1.i_item_sk,inv1.d_moy,inv1.mean,inv1.cov
                |         ,inv2.d_moy,inv2.mean, inv2.cov
              """.stripMargin),
-    ("q39b", """
+    ("q39b", s"""
                | with inv as
                | (select w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy
                |        ,stdev,mean, case mean when 0 then null else stdev/mean end cov
                |  from(select w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy
                |             ,stddev_samp(inv_quantity_on_hand) stdev,avg(inv_quantity_on_hand) mean
-               |       from inventory, item, warehouse, date_dim
+               |       from ${tablePrefix}inventory, ${tablePrefix}item, ${tablePrefix}warehouse, ${tablePrefix}date_dim
                |       where inv_item_sk = i_item_sk
                |         and inv_warehouse_sk = w_warehouse_sk
                |         and inv_date_sk = d_date_sk
@@ -1622,7 +1630,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
                |         ,inv2.d_moy,inv2.mean, inv2.cov
              """.stripMargin),
     // Modifications: "+ days" -> date_add
-    ("q40", """
+    ("q40", s"""
               | select
               |   w_state
               |  ,i_item_id
@@ -1631,10 +1639,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |  ,sum(case when (cast(d_date as date) >= cast('2000-03-11' as date))
               | 		then cs_sales_price - coalesce(cr_refunded_cash,0) else 0 end) as sales_after
               | from
-              |   catalog_sales left outer join catalog_returns on
+              |   ${tablePrefix}catalog_sales left outer join ${tablePrefix}catalog_returns on
               |       (cs_order_number = cr_order_number
               |        and cs_item_sk = cr_item_sk)
-              |  ,warehouse, item, date_dim
+              |  ,${tablePrefix}warehouse, ${tablePrefix}item, ${tablePrefix}date_dim
               | where
               |     i_current_price between 0.99 and 1.49
               | and i_item_sk          = cs_item_sk
@@ -1646,12 +1654,12 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by w_state,i_item_id
               | limit 100
             """.stripMargin),
-    ("q41", """
+    ("q41", s"""
               | select distinct(i_product_name)
-              | from item i1
+              | from ${tablePrefix}item i1
               | where i_manufact_id between 738 and 738+40
               |   and (select count(*) as item_cnt
-              |        from item
+              |        from ${tablePrefix}item
               |        where (i_manufact = i1.i_manufact and
               |        ((i_category = 'Women' and
               |        (i_color = 'powder' or i_color = 'khaki') and
@@ -1697,23 +1705,23 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by i_product_name
               | limit 100
             """.stripMargin),
-    ("q42", """
-              | select dt.d_year, item.i_category_id, item.i_category, sum(ss_ext_sales_price)
-              | from 	date_dim dt, store_sales, item
-              | where dt.d_date_sk = store_sales.ss_sold_date_sk
-              | 	and store_sales.ss_item_sk = item.i_item_sk
-              | 	and item.i_manager_id = 1
+    ("q42", s"""
+              | select dt.d_year, ${tablePrefix}item.i_category_id, ${tablePrefix}item.i_category, sum(ss_ext_sales_price)
+              | from 	${tablePrefix}date_dim dt, ${tablePrefix}store_sales, ${tablePrefix}item
+              | where dt.d_date_sk = ${tablePrefix}store_sales.ss_sold_date_sk
+              | 	and ${tablePrefix}store_sales.ss_item_sk = ${tablePrefix}item.i_item_sk
+              | 	and ${tablePrefix}item.i_manager_id = 1
               | 	and dt.d_moy=11
               | 	and dt.d_year=2000
               | group by 	dt.d_year
-              | 		,item.i_category_id
-              | 		,item.i_category
+              | 		,${tablePrefix}item.i_category_id
+              | 		,${tablePrefix}item.i_category
               | order by       sum(ss_ext_sales_price) desc,dt.d_year
-              | 		,item.i_category_id
-              | 		,item.i_category
+              | 		,${tablePrefix}item.i_category_id
+              | 		,${tablePrefix}item.i_category
               | limit 100
             """.stripMargin),
-    ("q43", """
+    ("q43", s"""
               | select s_store_name, s_store_id,
               |        sum(case when (d_day_name='Sunday') then ss_sales_price else null end) sun_sales,
               |        sum(case when (d_day_name='Monday') then ss_sales_price else null end) mon_sales,
@@ -1722,7 +1730,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |        sum(case when (d_day_name='Thursday') then ss_sales_price else null end) thu_sales,
               |        sum(case when (d_day_name='Friday') then ss_sales_price else null end) fri_sales,
               |        sum(case when (d_day_name='Saturday') then ss_sales_price else null end) sat_sales
-              | from date_dim, store_sales, store
+              | from ${tablePrefix}date_dim, ${tablePrefix}store_sales, ${tablePrefix}store
               | where d_date_sk = ss_sold_date_sk and
               |       s_store_sk = ss_store_sk and
               |       s_gmt_offset = -5 and
@@ -1732,16 +1740,16 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |          thu_sales,fri_sales,sat_sales
               | limit 100
             """.stripMargin),
-    ("q44", """
+    ("q44", s"""
               | select asceding.rnk, i1.i_product_name best_performing, i2.i_product_name worst_performing
               | from(select *
               |     from (select item_sk,rank() over (order by rank_col asc) rnk
               |           from (select ss_item_sk item_sk,avg(ss_net_profit) rank_col
-              |                 from store_sales ss1
+              |                 from ${tablePrefix}store_sales ss1
               |                 where ss_store_sk = 4
               |                 group by ss_item_sk
               |                 having avg(ss_net_profit) > 0.9*(select avg(ss_net_profit) rank_col
-              |                                                  from store_sales
+              |                                                  from ${tablePrefix}store_sales
               |                                                  where ss_store_sk = 4
               |                                                    and ss_addr_sk is null
               |                                                  group by ss_store_sk))V1)V11
@@ -1749,32 +1757,32 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    (select *
               |     from (select item_sk,rank() over (order by rank_col desc) rnk
               |           from (select ss_item_sk item_sk,avg(ss_net_profit) rank_col
-              |                 from store_sales ss1
+              |                 from ${tablePrefix}store_sales ss1
               |                 where ss_store_sk = 4
               |                 group by ss_item_sk
               |                 having avg(ss_net_profit) > 0.9*(select avg(ss_net_profit) rank_col
-              |                                                  from store_sales
+              |                                                  from ${tablePrefix}store_sales
               |                                                  where ss_store_sk = 4
               |                                                    and ss_addr_sk is null
               |                                                  group by ss_store_sk))V2)V21
               |     where rnk  < 11) descending,
-              | item i1, item i2
+              | ${tablePrefix}item i1, ${tablePrefix}item i2
               | where asceding.rnk = descending.rnk
               |   and i1.i_item_sk=asceding.item_sk
               |   and i2.i_item_sk=descending.item_sk
               | order by asceding.rnk
               | limit 100
             """.stripMargin),
-    ("q45", """
+    ("q45", s"""
               | select ca_zip, ca_city, sum(ws_sales_price)
-              | from web_sales, customer, customer_address, date_dim, item
+              | from ${tablePrefix}web_sales, ${tablePrefix}customer, ${tablePrefix}customer_address, ${tablePrefix}date_dim, ${tablePrefix}item
               | where ws_bill_customer_sk = c_customer_sk
               | 	and c_current_addr_sk = ca_address_sk
               | 	and ws_item_sk = i_item_sk
               | 	and ( substr(ca_zip,1,5) in ('85669', '86197','88274','83405','86475', '85392', '85460', '80348', '81792')
               | 	      or
               | 	      i_item_id in (select i_item_id
-              |                             from item
+              |                             from ${tablePrefix}item
               |                             where i_item_sk in (2, 3, 5, 7, 11, 13, 17, 19, 23, 29)
               |                             )
               | 	    )
@@ -1784,7 +1792,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by ca_zip, ca_city
               | limit 100
             """.stripMargin),
-    ("q46", """
+    ("q46", s"""
               | select c_last_name, c_first_name, ca_city, bought_city, ss_ticket_number, amt,profit
               | from
               |   (select ss_ticket_number
@@ -1792,24 +1800,24 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |          ,ca_city bought_city
               |          ,sum(ss_coupon_amt) amt
               |          ,sum(ss_net_profit) profit
-              |    from store_sales, date_dim, store, household_demographics, customer_address
-              |    where store_sales.ss_sold_date_sk = date_dim.d_date_sk
-              |    and store_sales.ss_store_sk = store.s_store_sk
-              |    and store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
-              |    and store_sales.ss_addr_sk = customer_address.ca_address_sk
-              |    and (household_demographics.hd_dep_count = 4 or
-              |         household_demographics.hd_vehicle_count= 3)
-              |    and date_dim.d_dow in (6,0)
-              |    and date_dim.d_year in (1999,1999+1,1999+2)
-              |    and store.s_city in ('Fairview','Midway','Fairview','Fairview','Fairview')
-              |    group by ss_ticket_number,ss_customer_sk,ss_addr_sk,ca_city) dn,customer,customer_address current_addr
+              |    from ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}store, ${tablePrefix}household_demographics, ${tablePrefix}customer_address
+              |    where ${tablePrefix}store_sales.ss_sold_date_sk = ${tablePrefix}date_dim.d_date_sk
+              |    and ${tablePrefix}store_sales.ss_store_sk = ${tablePrefix}store.s_store_sk
+              |    and ${tablePrefix}store_sales.ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
+              |    and ${tablePrefix}store_sales.ss_addr_sk = ${tablePrefix}customer_address.ca_address_sk
+              |    and (${tablePrefix}household_demographics.hd_dep_count = 4 or
+              |         ${tablePrefix}household_demographics.hd_vehicle_count= 3)
+              |    and ${tablePrefix}date_dim.d_dow in (6,0)
+              |    and ${tablePrefix}date_dim.d_year in (1999,1999+1,1999+2)
+              |    and ${tablePrefix}store.s_city in ('Fairview','Midway','Fairview','Fairview','Fairview')
+              |    group by ss_ticket_number,ss_customer_sk,ss_addr_sk,ca_city) dn,${tablePrefix}customer,${tablePrefix}customer_address current_addr
               |    where ss_customer_sk = c_customer_sk
-              |      and customer.c_current_addr_sk = current_addr.ca_address_sk
+              |      and ${tablePrefix}customer.c_current_addr_sk = current_addr.ca_address_sk
               |      and current_addr.ca_city <> bought_city
               |  order by c_last_name, c_first_name, ca_city, bought_city, ss_ticket_number
               |  limit 100
             """.stripMargin),
-    ("q47", """
+    ("q47", s"""
               | with v1 as(
               | select i_category, i_brand,
               |        s_store_name, s_company_name,
@@ -1823,7 +1831,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |          (partition by i_category, i_brand,
               |                     s_store_name, s_company_name
               |           order by d_year, d_moy) rn
-              | from item, store_sales, date_dim, store
+              | from ${tablePrefix}item, ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}store
               | where ss_item_sk = i_item_sk and
               |       ss_sold_date_sk = d_date_sk and
               |       ss_store_sk = s_store_sk and
@@ -1857,9 +1865,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by sum_sales - avg_monthly_sales, 3
               | limit 100
             """.stripMargin),
-    ("q48", """
+    ("q48", s"""
               | select sum (ss_quantity)
-              | from store_sales, store, customer_demographics, customer_address, date_dim
+              | from ${tablePrefix}store_sales, ${tablePrefix}store, ${tablePrefix}customer_demographics, ${tablePrefix}customer_address, ${tablePrefix}date_dim
               | where s_store_sk = ss_store_sk
               | and  ss_sold_date_sk = d_date_sk and d_year = 2001
               | and
@@ -1923,7 +1931,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | )
             """.stripMargin),
     // Modifications: "dec" -> "decimal"
-    ("q49", """
+    ("q49", s"""
               | select 'web' as channel, web.item, web.return_ratio, web.return_rank, web.currency_rank
               | from (
               | 	select
@@ -1937,10 +1945,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | 		,(cast(sum(coalesce(wr.wr_return_amt,0)) as decimal(15,4))/
               | 		cast(sum(coalesce(ws.ws_net_paid,0)) as decimal(15,4) )) as currency_ratio
               | 		from
-              | 		 web_sales ws left outer join web_returns wr
+              | 		 ${tablePrefix}web_sales ws left outer join ${tablePrefix}web_returns wr
               | 			on (ws.ws_order_number = wr.wr_order_number and
               | 			ws.ws_item_sk = wr.wr_item_sk)
-              |        ,date_dim
+              |        ,${tablePrefix}date_dim
               | 		where
               | 			wr.wr_return_amt > 10000
               | 			and ws.ws_net_profit > 1
@@ -1970,10 +1978,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | 		,(cast(sum(coalesce(cr.cr_return_amount,0)) as decimal(15,4))/
               | 		cast(sum(coalesce(cs.cs_net_paid,0)) as decimal(15,4) )) as currency_ratio
               | 		from
-              | 		catalog_sales cs left outer join catalog_returns cr
+              | 		${tablePrefix}catalog_sales cs left outer join ${tablePrefix}catalog_returns cr
               | 			on (cs.cs_order_number = cr.cr_order_number and
               | 			cs.cs_item_sk = cr.cr_item_sk)
-              |                ,date_dim
+              |                ,${tablePrefix}date_dim
               | 		where
               | 			cr.cr_return_amount > 10000
               | 			and cs.cs_net_profit > 1
@@ -1988,8 +1996,8 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | where (catalog.return_rank <= 10 or catalog.currency_rank <=10)
               | union
               | select
-              |    'store' as channel, store.item, store.return_ratio,
-              |    store.return_rank, store.currency_rank
+              |    'store' as channel, ${tablePrefix}store.item, ${tablePrefix}store.return_ratio,
+              |    ${tablePrefix}store.return_rank, ${tablePrefix}store.currency_rank
               | from (
               | 	select
               |      item, return_ratio, currency_ratio,
@@ -2002,9 +2010,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | 		,(cast(sum(coalesce(sr.sr_return_amt,0)) as decimal(15,4))/
               |               cast(sum(coalesce(sts.ss_net_paid,0)) as decimal(15,4) )) as currency_ratio
               | 		from
-              | 		store_sales sts left outer join store_returns sr
+              | 		${tablePrefix}store_sales sts left outer join ${tablePrefix}store_returns sr
               | 			on (sts.ss_ticket_number = sr.sr_ticket_number and sts.ss_item_sk = sr.sr_item_sk)
-              |                ,date_dim
+              |                ,${tablePrefix}date_dim
               | 		where
               | 			sr.sr_return_amt > 10000
               | 			and sts.ss_net_profit > 1
@@ -2015,13 +2023,13 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |                         and d_moy = 12
               | 		group by sts.ss_item_sk
               | 	) in_store
-              | ) store
-              | where (store.return_rank <= 10 or store.currency_rank <= 10)
+              | ) ${tablePrefix}store
+              | where (${tablePrefix}store.return_rank <= 10 or ${tablePrefix}store.currency_rank <= 10)
               | order by 1,4,5
               | limit 100
             """.stripMargin),
     // Modifications: " -> `
-    ("q50", """
+    ("q50", s"""
               | select
               |    s_store_name, s_company_id, s_street_number, s_street_name, s_street_type,
               |    s_suite_number, s_city, s_county, s_state, s_zip
@@ -2034,7 +2042,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |                  (sr_returned_date_sk - ss_sold_date_sk <= 120) then 1 else 0 end)  as `91-120 days`
               |   ,sum(case when (sr_returned_date_sk - ss_sold_date_sk  > 120) then 1 else 0 end)  as `>120 days`
               | from
-              |    store_sales, store_returns, store, date_dim d1, date_dim d2
+              |    ${tablePrefix}store_sales, ${tablePrefix}store_returns, ${tablePrefix}store, ${tablePrefix}date_dim d1, ${tablePrefix}date_dim d2
               | where
               |     d2.d_year = 2001
               | and d2.d_moy  = 8
@@ -2052,13 +2060,13 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |     s_suite_number, s_city, s_county, s_state, s_zip
               |  limit 100
             """.stripMargin),
-    ("q51", """
+    ("q51", s"""
               | WITH web_v1 as (
               | select
               |   ws_item_sk item_sk, d_date,
               |   sum(sum(ws_sales_price))
               |       over (partition by ws_item_sk order by d_date rows between unbounded preceding and current row) cume_sales
-              | from web_sales, date_dim
+              | from ${tablePrefix}web_sales, ${tablePrefix}date_dim
               | where ws_sold_date_sk=d_date_sk
               |   and d_month_seq between 1200 and 1200+11
               |   and ws_item_sk is not NULL
@@ -2068,49 +2076,49 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |   ss_item_sk item_sk, d_date,
               |   sum(sum(ss_sales_price))
               |       over (partition by ss_item_sk order by d_date rows between unbounded preceding and current row) cume_sales
-              | from store_sales, date_dim
+              | from ${tablePrefix}store_sales, ${tablePrefix}date_dim
               | where ss_sold_date_sk=d_date_sk
               |   and d_month_seq between 1200 and 1200+11
               |   and ss_item_sk is not NULL
               | group by ss_item_sk, d_date)
               | select *
-              | from (select item_sk, d_date, web_sales, store_sales
+              | from (select item_sk, d_date, web_sales, ${tablePrefix}store_sales
               |      ,max(web_sales)
               |          over (partition by item_sk order by d_date rows between unbounded preceding and current row) web_cumulative
-              |      ,max(store_sales)
+              |      ,max(${tablePrefix}store_sales)
               |          over (partition by item_sk order by d_date rows between unbounded preceding and current row) store_cumulative
-              |      from (select case when web.item_sk is not null then web.item_sk else store.item_sk end item_sk
-              |                  ,case when web.d_date is not null then web.d_date else store.d_date end d_date
+              |      from (select case when web.item_sk is not null then web.item_sk else ${tablePrefix}store.item_sk end item_sk
+              |                  ,case when web.d_date is not null then web.d_date else ${tablePrefix}store.d_date end d_date
               |                  ,web.cume_sales web_sales
-              |                  ,store.cume_sales store_sales
-              |            from web_v1 web full outer join store_v1 store on (web.item_sk = store.item_sk
-              |                                                           and web.d_date = store.d_date)
+              |                  ,${tablePrefix}store.cume_sales ${tablePrefix}store_sales
+              |            from web_v1 web full outer join store_v1 ${tablePrefix}store on (web.item_sk = ${tablePrefix}store.item_sk
+              |                                                           and web.d_date = ${tablePrefix}store.d_date)
               |           )x )y
               | where web_cumulative > store_cumulative
               | order by item_sk, d_date
               | limit 100
             """.stripMargin),
-    ("q52", """
+    ("q52", s"""
               | select dt.d_year
-              | 	,item.i_brand_id brand_id
-              | 	,item.i_brand brand
+              | 	,${tablePrefix}item.i_brand_id brand_id
+              | 	,${tablePrefix}item.i_brand brand
               | 	,sum(ss_ext_sales_price) ext_price
-              | from date_dim dt, store_sales, item
-              | where dt.d_date_sk = store_sales.ss_sold_date_sk
-              |    and store_sales.ss_item_sk = item.i_item_sk
-              |    and item.i_manager_id = 1
+              | from ${tablePrefix}date_dim dt, ${tablePrefix}store_sales, ${tablePrefix}item
+              | where dt.d_date_sk = ${tablePrefix}store_sales.ss_sold_date_sk
+              |    and ${tablePrefix}store_sales.ss_item_sk = ${tablePrefix}item.i_item_sk
+              |    and ${tablePrefix}item.i_manager_id = 1
               |    and dt.d_moy=11
               |    and dt.d_year=2000
-              | group by dt.d_year, item.i_brand, item.i_brand_id
+              | group by dt.d_year, ${tablePrefix}item.i_brand, ${tablePrefix}item.i_brand_id
               | order by dt.d_year, ext_price desc, brand_id
               |limit 100
             """.stripMargin),
-    ("q53", """
+    ("q53", s"""
               | select * from
               |   (select i_manufact_id,
               |           sum(ss_sales_price) sum_sales,
               |           avg(sum(ss_sales_price)) over (partition by i_manufact_id) avg_quarterly_sales
-              |     from item, store_sales, date_dim, store
+              |     from ${tablePrefix}item, ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}store
               |     where ss_item_sk = i_item_sk and
               |           ss_sold_date_sk = d_date_sk and
               |           ss_store_sk = s_store_sk and
@@ -2134,7 +2142,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | 	 i_manufact_id
               | limit 100
             """.stripMargin),
-    ("q54", """
+    ("q54", s"""
               | with my_customers as (
               | select distinct c_customer_sk
               |        , c_current_addr_sk
@@ -2142,16 +2150,16 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |        ( select cs_sold_date_sk sold_date_sk,
               |                 cs_bill_customer_sk customer_sk,
               |                 cs_item_sk item_sk
-              |          from   catalog_sales
+              |          from   ${tablePrefix}catalog_sales
               |          union all
               |          select ws_sold_date_sk sold_date_sk,
               |                 ws_bill_customer_sk customer_sk,
               |                 ws_item_sk item_sk
-              |          from   web_sales
+              |          from   ${tablePrefix}web_sales
               |         ) cs_or_ws_sales,
-              |         item,
-              |         date_dim,
-              |         customer
+              |         ${tablePrefix}item,
+              |         ${tablePrefix}date_dim,
+              |         ${tablePrefix}customer
               | where   sold_date_sk = d_date_sk
               |         and item_sk = i_item_sk
               |         and i_category = 'Women'
@@ -2164,19 +2172,19 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | select c_customer_sk,
               |        sum(ss_ext_sales_price) as revenue
               | from   my_customers,
-              |        store_sales,
-              |        customer_address,
-              |        store,
-              |        date_dim
+              |        ${tablePrefix}store_sales,
+              |        ${tablePrefix}customer_address,
+              |        ${tablePrefix}store,
+              |        ${tablePrefix}date_dim
               | where  c_current_addr_sk = ca_address_sk
               |        and ca_county = s_county
               |        and ca_state = s_state
               |        and ss_sold_date_sk = d_date_sk
               |        and c_customer_sk = ss_customer_sk
               |        and d_month_seq between (select distinct d_month_seq+1
-              |                                 from   date_dim where d_year = 1998 and d_moy = 12)
+              |                                 from   ${tablePrefix}date_dim where d_year = 1998 and d_moy = 12)
               |                           and  (select distinct d_month_seq+3
-              |                                 from   date_dim where d_year = 1998 and d_moy = 12)
+              |                                 from   ${tablePrefix}date_dim where d_year = 1998 and d_moy = 12)
               | group by c_customer_sk
               | )
               | , segments as
@@ -2187,10 +2195,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by segment, num_customers
               | limit 100
             """.stripMargin),
-    ("q55", """
+    ("q55", s"""
               |select i_brand_id brand_id, i_brand brand,
               | 	sum(ss_ext_sales_price) ext_price
-              | from date_dim, store_sales, item
+              | from ${tablePrefix}date_dim, ${tablePrefix}store_sales, ${tablePrefix}item
               | where d_date_sk = ss_sold_date_sk
               | 	and ss_item_sk = i_item_sk
               | 	and i_manager_id=28
@@ -2200,13 +2208,13 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by ext_price desc, brand_id
               | limit 100
             """.stripMargin),
-    ("q56", """
+    ("q56", s"""
               | with ss as (
               | select i_item_id,sum(ss_ext_sales_price) total_sales
               | from
-              | 	  store_sales, date_dim, customer_address, item
+              | 	  ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}item
               | where
-              |    i_item_id in (select i_item_id from item where i_color in ('slate','blanched','burnished'))
+              |    i_item_id in (select i_item_id from ${tablePrefix}item where i_color in ('slate','blanched','burnished'))
               | and     ss_item_sk              = i_item_sk
               | and     ss_sold_date_sk         = d_date_sk
               | and     d_year                  = 2001
@@ -2217,9 +2225,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | cs as (
               | select i_item_id,sum(cs_ext_sales_price) total_sales
               | from
-              | 	  catalog_sales, date_dim, customer_address, item
+              | 	  ${tablePrefix}catalog_sales, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}item
               | where
-              |    i_item_id in (select i_item_id from item where i_color in ('slate','blanched','burnished'))
+              |    i_item_id in (select i_item_id from ${tablePrefix}item where i_color in ('slate','blanched','burnished'))
               | and     cs_item_sk              = i_item_sk
               | and     cs_sold_date_sk         = d_date_sk
               | and     d_year                  = 2001
@@ -2230,9 +2238,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | ws as (
               | select i_item_id,sum(ws_ext_sales_price) total_sales
               | from
-              | 	  web_sales, date_dim, customer_address, item
+              | 	  ${tablePrefix}web_sales, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}item
               | where
-              |    i_item_id in (select i_item_id from item where i_color in ('slate','blanched','burnished'))
+              |    i_item_id in (select i_item_id from ${tablePrefix}item where i_color in ('slate','blanched','burnished'))
               | and     ws_item_sk              = i_item_sk
               | and     ws_sold_date_sk         = d_date_sk
               | and     d_year                  = 2001
@@ -2250,7 +2258,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by total_sales
               | limit 100
             """.stripMargin),
-    ("q57", """
+    ("q57", s"""
               | with v1 as(
               | select i_category, i_brand,
               |        cc_name,
@@ -2262,7 +2270,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |        rank() over
               |          (partition by i_category, i_brand, cc_name
               |           order by d_year, d_moy) rn
-              | from item, catalog_sales, date_dim, call_center
+              | from ${tablePrefix}item, ${tablePrefix}catalog_sales, ${tablePrefix}date_dim, ${tablePrefix}call_center
               | where cs_item_sk = i_item_sk and
               |       cs_sold_date_sk = d_date_sk and
               |       cc_call_center_sk= cs_call_center_sk and
@@ -2293,38 +2301,38 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by sum_sales - avg_monthly_sales, 3
               | limit 100
             """.stripMargin),
-    ("q58", """
+    ("q58", s"""
               | with ss_items as
               | (select i_item_id item_id, sum(ss_ext_sales_price) ss_item_rev
-              | from store_sales, item, date_dim
+              | from ${tablePrefix}store_sales, ${tablePrefix}item, ${tablePrefix}date_dim
               | where ss_item_sk = i_item_sk
               |   and d_date in (select d_date
-              |                  from date_dim
+              |                  from ${tablePrefix}date_dim
               |                  where d_week_seq = (select d_week_seq
-              |                                      from date_dim
+              |                                      from ${tablePrefix}date_dim
               |                                      where d_date = '2000-01-03'))
               |   and ss_sold_date_sk   = d_date_sk
               | group by i_item_id),
               | cs_items as
               | (select i_item_id item_id
               |        ,sum(cs_ext_sales_price) cs_item_rev
-              |  from catalog_sales, item, date_dim
+              |  from ${tablePrefix}catalog_sales, ${tablePrefix}item, ${tablePrefix}date_dim
               | where cs_item_sk = i_item_sk
               |  and  d_date in (select d_date
-              |                  from date_dim
+              |                  from ${tablePrefix}date_dim
               |                  where d_week_seq = (select d_week_seq
-              |                                      from date_dim
+              |                                      from ${tablePrefix}date_dim
               |                                      where d_date = '2000-01-03'))
               |  and  cs_sold_date_sk = d_date_sk
               | group by i_item_id),
               | ws_items as
               | (select i_item_id item_id, sum(ws_ext_sales_price) ws_item_rev
-              |  from web_sales, item, date_dim
+              |  from ${tablePrefix}web_sales, ${tablePrefix}item, ${tablePrefix}date_dim
               | where ws_item_sk = i_item_sk
               |  and  d_date in (select d_date
-              |                  from date_dim
+              |                  from ${tablePrefix}date_dim
               |                  where d_week_seq =(select d_week_seq
-              |                                     from date_dim
+              |                                     from ${tablePrefix}date_dim
               |                                     where d_date = '2000-01-03'))
               |  and ws_sold_date_sk   = d_date_sk
               | group by i_item_id)
@@ -2348,7 +2356,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by item_id, ss_item_rev
               | limit 100
             """.stripMargin),
-    ("q59", """
+    ("q59", s"""
               | with wss as
               | (select d_week_seq,
               |        ss_store_sk,
@@ -2359,7 +2367,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |        sum(case when (d_day_name='Thursday') then ss_sales_price else null end) thu_sales,
               |        sum(case when (d_day_name='Friday') then ss_sales_price else null end) fri_sales,
               |        sum(case when (d_day_name='Saturday') then ss_sales_price else null end) sat_sales
-              | from store_sales,date_dim
+              | from ${tablePrefix}store_sales,${tablePrefix}date_dim
               | where d_date_sk = ss_sold_date_sk
               | group by d_week_seq,ss_store_sk
               | )
@@ -2373,7 +2381,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |        ,mon_sales mon_sales1,tue_sales tue_sales1
               |        ,wed_sales wed_sales1,thu_sales thu_sales1
               |        ,fri_sales fri_sales1,sat_sales sat_sales1
-              |  from wss,store,date_dim d
+              |  from wss,${tablePrefix}store,${tablePrefix}date_dim d
               |  where d.d_week_seq = wss.d_week_seq and
               |        ss_store_sk = s_store_sk and
               |        d_month_seq between 1212 and 1212 + 11) y,
@@ -2382,7 +2390,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |        ,mon_sales mon_sales2,tue_sales tue_sales2
               |        ,wed_sales wed_sales2,thu_sales thu_sales2
               |        ,fri_sales fri_sales2,sat_sales sat_sales2
-              |  from wss,store,date_dim d
+              |  from wss,${tablePrefix}store,${tablePrefix}date_dim d
               |  where d.d_week_seq = wss.d_week_seq and
               |        ss_store_sk = s_store_sk and
               |        d_month_seq between 1212+ 12 and 1212 + 23) x
@@ -2391,12 +2399,12 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by s_store_name1,s_store_id1,d_week_seq1
               | limit 100
             """.stripMargin),
-    ("q60", """
+    ("q60", s"""
               | with ss as (
               |    select i_item_id,sum(ss_ext_sales_price) total_sales
-              |    from store_sales, date_dim, customer_address, item
+              |    from ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}item
               |    where
-              |        i_item_id in (select i_item_id from item where i_category in ('Music'))
+              |        i_item_id in (select i_item_id from ${tablePrefix}item where i_category in ('Music'))
               |    and     ss_item_sk              = i_item_sk
               |    and     ss_sold_date_sk         = d_date_sk
               |    and     d_year                  = 1998
@@ -2406,9 +2414,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    group by i_item_id),
               |  cs as (
               |    select i_item_id,sum(cs_ext_sales_price) total_sales
-              |    from catalog_sales, date_dim, customer_address, item
+              |    from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}item
               |    where
-              |        i_item_id in (select i_item_id from item where i_category in ('Music'))
+              |        i_item_id in (select i_item_id from ${tablePrefix}item where i_category in ('Music'))
               |    and     cs_item_sk              = i_item_sk
               |    and     cs_sold_date_sk         = d_date_sk
               |    and     d_year                  = 1998
@@ -2418,9 +2426,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    group by i_item_id),
               |  ws as (
               |    select i_item_id,sum(ws_ext_sales_price) total_sales
-              |    from web_sales, date_dim, customer_address, item
+              |    from ${tablePrefix}web_sales, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}item
               |    where
-              |        i_item_id in (select i_item_id from item where i_category in ('Music'))
+              |        i_item_id in (select i_item_id from ${tablePrefix}item where i_category in ('Music'))
               |    and     ws_item_sk              = i_item_sk
               |    and     ws_sold_date_sk         = d_date_sk
               |    and     d_year                  = 1998
@@ -2442,7 +2450,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
                | select promotions,total,cast(promotions as decimal(15,4))/cast(total as decimal(15,4))*100
                | from
                |   (select sum(ss_ext_sales_price) promotions
-               |     from  store_sales, store, promotion, date_dim, customer, customer_address, item
+               |     from  ${tablePrefix}store_sales, ${tablePrefix}store, ${tablePrefix}promotion, ${tablePrefix}date_dim, ${tablePrefix}customer, ${tablePrefix}customer_address, ${tablePrefix}item
                |     where ss_sold_date_sk = d_date_sk
                |     and   ss_store_sk = s_store_sk
                |     and   ss_promo_sk = p_promo_sk
@@ -2456,7 +2464,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
                |     and   d_year = 1998
                |     and   d_moy  = 11) promotional_sales,
                |   (select sum(ss_ext_sales_price) total
-               |     from  store_sales, store, date_dim, customer, customer_address, item
+               |     from  ${tablePrefix}store_sales, ${tablePrefix}store, ${tablePrefix}date_dim, ${tablePrefix}customer, ${tablePrefix}customer_address, ${tablePrefix}item
                |     where ss_sold_date_sk = d_date_sk
                |     and   ss_store_sk = s_store_sk
                |     and   ss_customer_sk= c_customer_sk
@@ -2471,7 +2479,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
                | limit 100
             """.stripMargin),
     // Modifications: " -> `
-    ("q62", """
+    ("q62", s"""
               | select
               |   substr(w_warehouse_name,1,20)
               |  ,sm_type
@@ -2485,7 +2493,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |                 (ws_ship_date_sk - ws_sold_date_sk <= 120) then 1 else 0 end)  as `91-120 days`
               |  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk  > 120) then 1 else 0 end)  as `>120 days`
               | from
-              |    web_sales, warehouse, ship_mode, web_site, date_dim
+              |    ${tablePrefix}web_sales, ${tablePrefix}warehouse, ${tablePrefix}ship_mode, ${tablePrefix}web_site, ${tablePrefix}date_dim
               | where
               |     d_month_seq between 1200 and 1200 + 11
               | and ws_ship_date_sk   = d_date_sk
@@ -2498,15 +2506,15 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    substr(w_warehouse_name,1,20), sm_type, web_name
               | limit 100
             """.stripMargin),
-    ("q63", """
+    ("q63", s"""
               | select *
               | from (select i_manager_id
               |              ,sum(ss_sales_price) sum_sales
               |              ,avg(sum(ss_sales_price)) over (partition by i_manager_id) avg_monthly_sales
-              |       from item
-              |           ,store_sales
-              |           ,date_dim
-              |           ,store
+              |       from ${tablePrefix}item
+              |           ,${tablePrefix}store_sales
+              |           ,${tablePrefix}date_dim
+              |           ,${tablePrefix}store
               |       where ss_item_sk = i_item_sk
               |         and ss_sold_date_sk = d_date_sk
               |         and ss_store_sk = s_store_sk
@@ -2527,12 +2535,12 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |         ,sum_sales
               | limit 100
             """.stripMargin),
-    ("q64", """
+    ("q64", s"""
               | with cs_ui as
               |  (select cs_item_sk
               |         ,sum(cs_ext_list_price) as sale,sum(cr_refunded_cash+cr_reversed_charge+cr_store_credit) as refund
-              |   from catalog_sales
-              |       ,catalog_returns
+              |   from ${tablePrefix}catalog_sales
+              |       ,${tablePrefix}catalog_returns
               |   where cs_item_sk = cr_item_sk
               |     and cs_order_number = cr_order_number
               |   group by cs_item_sk
@@ -2543,10 +2551,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |          ad1.ca_zip b_zip, ad2.ca_street_number c_street_number, ad2.ca_street_name c_street_name,
               |          ad2.ca_city c_city, ad2.ca_zip c_zip, d1.d_year as syear, d2.d_year as fsyear, d3.d_year s2year,
               |          count(*) cnt, sum(ss_wholesale_cost) s1, sum(ss_list_price) s2, sum(ss_coupon_amt) s3
-              |   FROM store_sales, store_returns, cs_ui, date_dim d1, date_dim d2, date_dim d3,
-              |        store, customer, customer_demographics cd1, customer_demographics cd2,
-              |        promotion, household_demographics hd1, household_demographics hd2,
-              |        customer_address ad1, customer_address ad2, income_band ib1, income_band ib2, item
+              |   FROM ${tablePrefix}store_sales, ${tablePrefix}store_returns, cs_ui, ${tablePrefix}date_dim d1, ${tablePrefix}date_dim d2, ${tablePrefix}date_dim d3,
+              |        ${tablePrefix}store, ${tablePrefix}customer, ${tablePrefix}customer_demographics cd1, ${tablePrefix}customer_demographics cd2,
+              |        ${tablePrefix}promotion, ${tablePrefix}household_demographics hd1, ${tablePrefix}household_demographics hd2,
+              |        ${tablePrefix}customer_address ad1, ${tablePrefix}customer_address ad2, ${tablePrefix}income_band ib1, ${tablePrefix}income_band ib2, ${tablePrefix}item
               |   WHERE  ss_store_sk = s_store_sk AND
               |          ss_sold_date_sk = d1.d_date_sk AND
               |          ss_customer_sk = c_customer_sk AND
@@ -2586,20 +2594,20 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |      cs1.store_zip = cs2.store_zip
               | order by cs1.product_name, cs1.store_name, cs2.cnt
             """.stripMargin),
-    ("q65", """
+    ("q65", s"""
               | select
               |	  s_store_name, i_item_desc, sc.revenue, i_current_price, i_wholesale_cost, i_brand
-              | from store, item,
+              | from ${tablePrefix}store, ${tablePrefix}item,
               |     (select ss_store_sk, avg(revenue) as ave
               | 	from
               | 	    (select  ss_store_sk, ss_item_sk,
               | 		     sum(ss_sales_price) as revenue
-              | 		from store_sales, date_dim
+              | 		from ${tablePrefix}store_sales, ${tablePrefix}date_dim
               | 		where ss_sold_date_sk = d_date_sk and d_month_seq between 1176 and 1176+11
               | 		group by ss_store_sk, ss_item_sk) sa
               | 	group by ss_store_sk) sb,
               |     (select  ss_store_sk, ss_item_sk, sum(ss_sales_price) as revenue
-              | 	from store_sales, date_dim
+              | 	from ${tablePrefix}store_sales, ${tablePrefix}date_dim
               | 	where ss_sold_date_sk = d_date_sk and d_month_seq between 1176 and 1176+11
               | 	group by ss_store_sk, ss_item_sk) sc
               | where sb.ss_store_sk = sc.ss_store_sk and
@@ -2610,7 +2618,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | limit 100
             """.stripMargin),
     // Modifications: "||" -> concat
-    ("q66", """
+    ("q66", s"""
               | select w_warehouse_name, w_warehouse_sq_ft, w_city, w_county, w_state, w_country,
               |    ship_carriers, year
               | 	  ,sum(jan_sales) as jan_sales
@@ -2679,7 +2687,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | 	    ,sum(case when d_moy = 11 then ws_net_paid * ws_quantity else 0 end) as nov_net
               | 	    ,sum(case when d_moy = 12 then ws_net_paid * ws_quantity else 0 end) as dec_net
               |    from
-              |      web_sales, warehouse, date_dim, time_dim, ship_mode
+              |      ${tablePrefix}web_sales, ${tablePrefix}warehouse, ${tablePrefix}date_dim, ${tablePrefix}time_dim, ${tablePrefix}ship_mode
               |    where
               |      ws_warehouse_sk =  w_warehouse_sk
               |      and ws_sold_date_sk = d_date_sk
@@ -2719,7 +2727,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | 	    ,sum(case when d_moy = 11 then cs_net_paid_inc_tax * cs_quantity else 0 end) as nov_net
               | 	    ,sum(case when d_moy = 12 then cs_net_paid_inc_tax * cs_quantity else 0 end) as dec_net
               |     from
-              |        catalog_sales, warehouse, date_dim, time_dim, ship_mode
+              |        ${tablePrefix}catalog_sales, ${tablePrefix}warehouse, ${tablePrefix}date_dim, ${tablePrefix}time_dim, ${tablePrefix}ship_mode
               |     where
               |        cs_warehouse_sk =  w_warehouse_sk
               |        and cs_sold_date_sk = d_date_sk
@@ -2738,14 +2746,14 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by w_warehouse_name
               | limit 100
             """.stripMargin),
-    ("q67", """
+    ("q67", s"""
               | select * from
               |     (select i_category, i_class, i_brand, i_product_name, d_year, d_qoy, d_moy, s_store_id,
               |             sumsales, rank() over (partition by i_category order by sumsales desc) rk
               |      from
               |         (select i_category, i_class, i_brand, i_product_name, d_year, d_qoy, d_moy,
               |                 s_store_id, sum(coalesce(ss_sales_price*ss_quantity,0)) sumsales
-              |          from store_sales, date_dim, store, item
+              |          from ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}store, ${tablePrefix}item
               |        where  ss_sold_date_sk=d_date_sk
               |           and ss_item_sk=i_item_sk
               |           and ss_store_sk = s_store_sk
@@ -2758,7 +2766,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |   d_qoy, d_moy, s_store_id, sumsales, rk
               | limit 100
             """.stripMargin),
-    ("q68", """
+    ("q68", s"""
               | select
               |    c_last_name, c_first_name, ca_city, bought_city, ss_ticket_number, extended_price,
               |    extended_tax, list_price
@@ -2767,46 +2775,46 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |        sum(ss_ext_sales_price) extended_price,
               |        sum(ss_ext_list_price) list_price,
               |        sum(ss_ext_tax) extended_tax
-              |     from store_sales, date_dim, store, household_demographics, customer_address
-              |     where store_sales.ss_sold_date_sk = date_dim.d_date_sk
-              |        and store_sales.ss_store_sk = store.s_store_sk
-              |        and store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
-              |        and store_sales.ss_addr_sk = customer_address.ca_address_sk
-              |        and date_dim.d_dom between 1 and 2
-              |        and (household_demographics.hd_dep_count = 4 or
-              |             household_demographics.hd_vehicle_count = 3)
-              |        and date_dim.d_year in (1999,1999+1,1999+2)
-              |        and store.s_city in ('Midway','Fairview')
+              |     from ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}store, ${tablePrefix}household_demographics, ${tablePrefix}customer_address
+              |     where ${tablePrefix}store_sales.ss_sold_date_sk = ${tablePrefix}date_dim.d_date_sk
+              |        and ${tablePrefix}store_sales.ss_store_sk = ${tablePrefix}store.s_store_sk
+              |        and ${tablePrefix}store_sales.ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
+              |        and ${tablePrefix}store_sales.ss_addr_sk = ${tablePrefix}customer_address.ca_address_sk
+              |        and ${tablePrefix}date_dim.d_dom between 1 and 2
+              |        and (${tablePrefix}household_demographics.hd_dep_count = 4 or
+              |             ${tablePrefix}household_demographics.hd_vehicle_count = 3)
+              |        and ${tablePrefix}date_dim.d_year in (1999,1999+1,1999+2)
+              |        and ${tablePrefix}store.s_city in ('Midway','Fairview')
               |     group by ss_ticket_number, ss_customer_sk, ss_addr_sk,ca_city) dn,
-              |    customer,
-              |    customer_address current_addr
+              |    ${tablePrefix}customer,
+              |    ${tablePrefix}customer_address current_addr
               | where ss_customer_sk = c_customer_sk
-              |   and customer.c_current_addr_sk = current_addr.ca_address_sk
+              |   and ${tablePrefix}customer.c_current_addr_sk = current_addr.ca_address_sk
               |   and current_addr.ca_city <> bought_city
               | order by c_last_name, ss_ticket_number
               | limit 100
             """.stripMargin),
-    ("q69", """
+    ("q69", s"""
               | select
               |    cd_gender, cd_marital_status, cd_education_status, count(*) cnt1,
               |    cd_purchase_estimate, count(*) cnt2, cd_credit_rating, count(*) cnt3
               | from
-              |    customer c,customer_address ca,customer_demographics
+              |    ${tablePrefix}customer c,${tablePrefix}customer_address ca,${tablePrefix}customer_demographics
               | where
               |    c.c_current_addr_sk = ca.ca_address_sk and
               |    ca_state in ('KY', 'GA', 'NM') and
               |    cd_demo_sk = c.c_current_cdemo_sk and
-              |    exists (select * from store_sales, date_dim
+              |    exists (select * from ${tablePrefix}store_sales, ${tablePrefix}date_dim
               |            where c.c_customer_sk = ss_customer_sk and
               |                ss_sold_date_sk = d_date_sk and
               |                d_year = 2001 and
               |                d_moy between 4 and 4+2) and
-              |   (not exists (select * from web_sales, date_dim
+              |   (not exists (select * from ${tablePrefix}web_sales, ${tablePrefix}date_dim
               |                where c.c_customer_sk = ws_bill_customer_sk and
               |                    ws_sold_date_sk = d_date_sk and
               |                    d_year = 2001 and
               |                    d_moy between 4 and 4+2) and
-              |    not exists (select * from catalog_sales, date_dim
+              |    not exists (select * from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim
               |                where c.c_customer_sk = cs_ship_customer_sk and
               |                    cs_sold_date_sk = d_date_sk and
               |                    d_year = 2001 and
@@ -2817,7 +2825,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |          cd_purchase_estimate, cd_credit_rating
               | limit 100
             """.stripMargin),
-    ("q70", """
+    ("q70", s"""
               | select
               |    sum(ss_net_profit) as total_sum, s_state, s_county
               |   ,grouping(s_state)+grouping(s_county) as lochierarchy
@@ -2826,7 +2834,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | 	    case when grouping(s_county) = 0 then s_state end
               | 	    order by sum(ss_net_profit) desc) as rank_within_parent
               | from
-              |    store_sales, date_dim d1, store
+              |    ${tablePrefix}store_sales, ${tablePrefix}date_dim d1, ${tablePrefix}store
               | where
               |    d1.d_month_seq between 1200 and 1200+11
               | and d1.d_date_sk = ss_sold_date_sk
@@ -2835,7 +2843,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    (select s_state from
               |        (select s_state as s_state,
               | 			      rank() over ( partition by s_state order by sum(ss_net_profit) desc) as ranking
-              |         from store_sales, store, date_dim
+              |         from ${tablePrefix}store_sales, ${tablePrefix}store, ${tablePrefix}date_dim
               |         where  d_month_seq between 1200 and 1200+11
               | 			   and d_date_sk = ss_sold_date_sk
               | 			   and s_store_sk  = ss_store_sk
@@ -2848,16 +2856,16 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |  ,rank_within_parent
               | limit 100
             """.stripMargin),
-    ("q71", """
+    ("q71", s"""
               | select i_brand_id brand_id, i_brand brand,t_hour,t_minute,
               | 	  sum(ext_price) ext_price
-              | from item,
+              | from ${tablePrefix}item,
               |    (select
               |        ws_ext_sales_price as ext_price,
               |        ws_sold_date_sk as sold_date_sk,
               |        ws_item_sk as sold_item_sk,
               |        ws_sold_time_sk as time_sk
-              |     from web_sales, date_dim
+              |     from ${tablePrefix}web_sales, ${tablePrefix}date_dim
               |     where d_date_sk = ws_sold_date_sk
               |        and d_moy=11
               |        and d_year=1999
@@ -2867,7 +2875,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |        cs_sold_date_sk as sold_date_sk,
               |        cs_item_sk as sold_item_sk,
               |        cs_sold_time_sk as time_sk
-              |      from catalog_sales, date_dim
+              |      from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim
               |      where d_date_sk = cs_sold_date_sk
               |          and d_moy=11
               |          and d_year=1999
@@ -2877,11 +2885,11 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |        ss_sold_date_sk as sold_date_sk,
               |        ss_item_sk as sold_item_sk,
               |        ss_sold_time_sk as time_sk
-              |     from store_sales,date_dim
+              |     from ${tablePrefix}store_sales,${tablePrefix}date_dim
               |     where d_date_sk = ss_sold_date_sk
               |        and d_moy=11
               |        and d_year=1999
-              |     ) as tmp, time_dim
+              |     ) as tmp, ${tablePrefix}time_dim
               | where
               |   sold_item_sk = i_item_sk
               |   and i_manager_id=1
@@ -2891,24 +2899,24 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by ext_price desc, brand_id
             """.stripMargin),
     // Modifications: "+ days" -> date_add
-    ("q72", """
+    ("q72", s"""
               | select i_item_desc
               |       ,w_warehouse_name
               |       ,d1.d_week_seq
               |       ,count(case when p_promo_sk is null then 1 else 0 end) no_promo
               |       ,count(case when p_promo_sk is not null then 1 else 0 end) promo
               |       ,count(*) total_cnt
-              | from catalog_sales
-              | join inventory on (cs_item_sk = inv_item_sk)
-              | join warehouse on (w_warehouse_sk=inv_warehouse_sk)
-              | join item on (i_item_sk = cs_item_sk)
-              | join customer_demographics on (cs_bill_cdemo_sk = cd_demo_sk)
-              | join household_demographics on (cs_bill_hdemo_sk = hd_demo_sk)
-              | join date_dim d1 on (cs_sold_date_sk = d1.d_date_sk)
-              | join date_dim d2 on (inv_date_sk = d2.d_date_sk)
-              | join date_dim d3 on (cs_ship_date_sk = d3.d_date_sk)
-              | left outer join promotion on (cs_promo_sk=p_promo_sk)
-              | left outer join catalog_returns on (cr_item_sk = cs_item_sk and cr_order_number = cs_order_number)
+              | from ${tablePrefix}catalog_sales
+              | join ${tablePrefix}inventory on (cs_item_sk = inv_item_sk)
+              | join ${tablePrefix}warehouse on (w_warehouse_sk=inv_warehouse_sk)
+              | join ${tablePrefix}item on (i_item_sk = cs_item_sk)
+              | join ${tablePrefix}customer_demographics on (cs_bill_cdemo_sk = cd_demo_sk)
+              | join ${tablePrefix}household_demographics on (cs_bill_hdemo_sk = hd_demo_sk)
+              | join ${tablePrefix}date_dim d1 on (cs_sold_date_sk = d1.d_date_sk)
+              | join ${tablePrefix}date_dim d2 on (inv_date_sk = d2.d_date_sk)
+              | join ${tablePrefix}date_dim d3 on (cs_ship_date_sk = d3.d_date_sk)
+              | left outer join ${tablePrefix}promotion on (cs_promo_sk=p_promo_sk)
+              | left outer join ${tablePrefix}catalog_returns on (cr_item_sk = cs_item_sk and cr_order_number = cs_order_number)
               | where d1.d_week_seq = d2.d_week_seq
               |   and inv_quantity_on_hand < cs_quantity
               |   and d3.d_date > date_add(d1.d_date, 5)
@@ -2921,36 +2929,36 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by total_cnt desc, i_item_desc, w_warehouse_name, d_week_seq
               | limit 100
             """.stripMargin),
-    ("q73", """
+    ("q73", s"""
               | select
               |    c_last_name, c_first_name, c_salutation, c_preferred_cust_flag,
               |    ss_ticket_number, cnt from
               |   (select ss_ticket_number, ss_customer_sk, count(*) cnt
-              |    from store_sales,date_dim,store,household_demographics
-              |    where store_sales.ss_sold_date_sk = date_dim.d_date_sk
-              |    and store_sales.ss_store_sk = store.s_store_sk
-              |    and store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
-              |    and date_dim.d_dom between 1 and 2
-              |    and (household_demographics.hd_buy_potential = '>10000' or
-              |         household_demographics.hd_buy_potential = 'unknown')
-              |    and household_demographics.hd_vehicle_count > 0
-              |    and case when household_demographics.hd_vehicle_count > 0 then
-              |             household_demographics.hd_dep_count/ household_demographics.hd_vehicle_count else null end > 1
-              |    and date_dim.d_year in (1999,1999+1,1999+2)
-              |    and store.s_county in ('Williamson County','Franklin Parish','Bronx County','Orange County')
-              |    group by ss_ticket_number,ss_customer_sk) dj,customer
+              |    from ${tablePrefix}store_sales,${tablePrefix}date_dim,${tablePrefix}store,${tablePrefix}household_demographics
+              |    where ${tablePrefix}store_sales.ss_sold_date_sk = ${tablePrefix}date_dim.d_date_sk
+              |    and ${tablePrefix}store_sales.ss_store_sk = ${tablePrefix}store.s_store_sk
+              |    and ${tablePrefix}store_sales.ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
+              |    and ${tablePrefix}date_dim.d_dom between 1 and 2
+              |    and (${tablePrefix}household_demographics.hd_buy_potential = '>10000' or
+              |         ${tablePrefix}household_demographics.hd_buy_potential = 'unknown')
+              |    and ${tablePrefix}household_demographics.hd_vehicle_count > 0
+              |    and case when ${tablePrefix}household_demographics.hd_vehicle_count > 0 then
+              |             ${tablePrefix}household_demographics.hd_dep_count/ ${tablePrefix}household_demographics.hd_vehicle_count else null end > 1
+              |    and ${tablePrefix}date_dim.d_year in (1999,1999+1,1999+2)
+              |    and ${tablePrefix}store.s_county in ('Williamson County','Franklin Parish','Bronx County','Orange County')
+              |    group by ss_ticket_number,ss_customer_sk) dj,${tablePrefix}customer
               |    where ss_customer_sk = c_customer_sk
               |      and cnt between 1 and 5
               |    order by cnt desc
             """.stripMargin),
-    ("q74", """
+    ("q74", s"""
               | with year_total as (
               | select
               |    c_customer_id customer_id, c_first_name customer_first_name,
               |    c_last_name customer_last_name, d_year as year,
               |    sum(ss_net_paid) year_total, 's' sale_type
               | from
-              |    customer, store_sales, date_dim
+              |    ${tablePrefix}customer, ${tablePrefix}store_sales, ${tablePrefix}date_dim
               | where c_customer_sk = ss_customer_sk
               |    and ss_sold_date_sk = d_date_sk
               |    and d_year in (2001,2001+1)
@@ -2962,7 +2970,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    c_last_name customer_last_name, d_year as year,
               |    sum(ws_net_paid) year_total, 'w' sale_type
               | from
-              |    customer, web_sales, date_dim
+              |    ${tablePrefix}customer, ${tablePrefix}web_sales, ${tablePrefix}date_dim
               | where c_customer_sk = ws_bill_customer_sk
               |    and ws_sold_date_sk = d_date_sk
               |    and d_year in (2001,2001+1)
@@ -2991,7 +2999,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by 1, 1, 1
               | limit 100
             """.stripMargin),
-    ("q75", """
+    ("q75", s"""
               | WITH all_sales AS (
               |    SELECT
               |        d_year, i_brand_id, i_class_id, i_category_id, i_manufact_id,
@@ -3001,10 +3009,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |            d_year, i_brand_id, i_class_id, i_category_id, i_manufact_id,
               |            cs_quantity - COALESCE(cr_return_quantity,0) AS sales_cnt,
               |            cs_ext_sales_price - COALESCE(cr_return_amount,0.0) AS sales_amt
-              |        FROM catalog_sales
-              |        JOIN item ON i_item_sk=cs_item_sk
-              |        JOIN date_dim ON d_date_sk=cs_sold_date_sk
-              |        LEFT JOIN catalog_returns ON (cs_order_number=cr_order_number
+              |        FROM ${tablePrefix}catalog_sales
+              |        JOIN ${tablePrefix}item ON i_item_sk=cs_item_sk
+              |        JOIN ${tablePrefix}date_dim ON d_date_sk=cs_sold_date_sk
+              |        LEFT JOIN ${tablePrefix}catalog_returns ON (cs_order_number=cr_order_number
               |                                      AND cs_item_sk=cr_item_sk)
               |        WHERE i_category='Books'
               |        UNION
@@ -3012,10 +3020,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |            d_year, i_brand_id, i_class_id, i_category_id, i_manufact_id,
               |             ss_quantity - COALESCE(sr_return_quantity,0) AS sales_cnt,
               |             ss_ext_sales_price - COALESCE(sr_return_amt,0.0) AS sales_amt
-              |        FROM store_sales
-              |        JOIN item ON i_item_sk=ss_item_sk
-              |        JOIN date_dim ON d_date_sk=ss_sold_date_sk
-              |        LEFT JOIN store_returns ON (ss_ticket_number=sr_ticket_number
+              |        FROM ${tablePrefix}store_sales
+              |        JOIN ${tablePrefix}item ON i_item_sk=ss_item_sk
+              |        JOIN ${tablePrefix}date_dim ON d_date_sk=ss_sold_date_sk
+              |        LEFT JOIN ${tablePrefix}store_returns ON (ss_ticket_number=sr_ticket_number
               |                                    AND ss_item_sk=sr_item_sk)
               |        WHERE i_category='Books'
               |        UNION
@@ -3023,10 +3031,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |            d_year, i_brand_id, i_class_id, i_category_id, i_manufact_id,
               |            ws_quantity - COALESCE(wr_return_quantity,0) AS sales_cnt,
               |            ws_ext_sales_price - COALESCE(wr_return_amt,0.0) AS sales_amt
-              |        FROM web_sales
-              |        JOIN item ON i_item_sk=ws_item_sk
-              |        JOIN date_dim ON d_date_sk=ws_sold_date_sk
-              |        LEFT JOIN web_returns ON (ws_order_number=wr_order_number
+              |        FROM ${tablePrefix}web_sales
+              |        JOIN ${tablePrefix}item ON i_item_sk=ws_item_sk
+              |        JOIN ${tablePrefix}date_dim ON d_date_sk=ws_sold_date_sk
+              |        LEFT JOIN ${tablePrefix}web_returns ON (ws_order_number=wr_order_number
               |                                  AND ws_item_sk=wr_item_sk)
               |        WHERE i_category='Books') sales_detail
               |    GROUP BY d_year, i_brand_id, i_class_id, i_category_id, i_manufact_id)
@@ -3047,7 +3055,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | ORDER BY sales_cnt_diff
               | LIMIT 100
             """.stripMargin),
-    ("q76", """
+    ("q76", s"""
               | SELECT
               |    channel, col_name, d_year, d_qoy, i_category, COUNT(*) sales_cnt,
               |    SUM(ext_sales_price) sales_amt
@@ -3055,7 +3063,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    SELECT
               |        'store' as channel, ss_store_sk col_name, d_year, d_qoy, i_category,
               |        ss_ext_sales_price ext_sales_price
-              |    FROM store_sales, item, date_dim
+              |    FROM ${tablePrefix}store_sales, ${tablePrefix}item, ${tablePrefix}date_dim
               |    WHERE ss_store_sk IS NULL
               |      AND ss_sold_date_sk=d_date_sk
               |      AND ss_item_sk=i_item_sk
@@ -3063,7 +3071,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    SELECT
               |        'web' as channel, ws_ship_customer_sk col_name, d_year, d_qoy, i_category,
               |        ws_ext_sales_price ext_sales_price
-              |    FROM web_sales, item, date_dim
+              |    FROM ${tablePrefix}web_sales, ${tablePrefix}item, ${tablePrefix}date_dim
               |    WHERE ws_ship_customer_sk IS NULL
               |      AND ws_sold_date_sk=d_date_sk
               |      AND ws_item_sk=i_item_sk
@@ -3071,7 +3079,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    SELECT
               |        'catalog' as channel, cs_ship_addr_sk col_name, d_year, d_qoy, i_category,
               |        cs_ext_sales_price ext_sales_price
-              |    FROM catalog_sales, item, date_dim
+              |    FROM ${tablePrefix}catalog_sales, ${tablePrefix}item, ${tablePrefix}date_dim
               |    WHERE cs_ship_addr_sk IS NULL
               |      AND cs_sold_date_sk=d_date_sk
               |      AND cs_item_sk=i_item_sk) foo
@@ -3080,10 +3088,10 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | limit 100
             """.stripMargin),
     // Modifications: "+ days" -> date_add
-    ("q77", """
+    ("q77", s"""
               | with ss as
               | (select s_store_sk, sum(ss_ext_sales_price) as sales, sum(ss_net_profit) as profit
-              |  from store_sales, date_dim, store
+              |  from ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}store
               |  where ss_sold_date_sk = d_date_sk
               |    and d_date between cast('2000-08-03' as date) and
               |                       date_add(cast('2000-08-03' as date), 30)
@@ -3091,7 +3099,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |  group by s_store_sk),
               | sr as
               | (select s_store_sk, sum(sr_return_amt) as returns, sum(sr_net_loss) as profit_loss
-              | from store_returns, date_dim, store
+              | from ${tablePrefix}store_returns, ${tablePrefix}date_dim, ${tablePrefix}store
               | where sr_returned_date_sk = d_date_sk
               |    and d_date between cast('2000-08-03' as date) and
               |                       date_add(cast('2000-08-03' as date), 30)
@@ -3099,20 +3107,20 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | group by s_store_sk),
               | cs as
               | (select cs_call_center_sk, sum(cs_ext_sales_price) as sales, sum(cs_net_profit) as profit
-              | from catalog_sales, date_dim
+              | from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim
               | where cs_sold_date_sk = d_date_sk
               |    and d_date between cast('2000-08-03' as date) and
               |                       date_add(cast('2000-08-03' as date), 30)
               | group by cs_call_center_sk),
               | cr as
               | (select sum(cr_return_amount) as returns, sum(cr_net_loss) as profit_loss
-              | from catalog_returns, date_dim
+              | from ${tablePrefix}catalog_returns, ${tablePrefix}date_dim
               | where cr_returned_date_sk = d_date_sk
               |    and d_date between cast('2000-08-03]' as date) and
               |                       date_add(cast('2000-08-03' as date), 30)),
               | ws as
               | (select wp_web_page_sk, sum(ws_ext_sales_price) as sales, sum(ws_net_profit) as profit
-              | from web_sales, date_dim, web_page
+              | from ${tablePrefix}web_sales, ${tablePrefix}date_dim, ${tablePrefix}web_page
               | where ws_sold_date_sk = d_date_sk
               |    and d_date between cast('2000-08-03' as date) and
               |                       date_add(cast('2000-08-03' as date), 30)
@@ -3120,7 +3128,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | group by wp_web_page_sk),
               | wr as
               | (select wp_web_page_sk, sum(wr_return_amt) as returns, sum(wr_net_loss) as profit_loss
-              | from web_returns, date_dim, web_page
+              | from ${tablePrefix}web_returns, ${tablePrefix}date_dim, ${tablePrefix}web_page
               | where wr_returned_date_sk = d_date_sk
               |       and d_date between cast('2000-08-03' as date) and
               |                          date_add(cast('2000-08-03' as date), 30)
@@ -3149,16 +3157,16 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by channel, id
               | limit 100
             """.stripMargin),
-    ("q78", """
+    ("q78", s"""
               | with ws as
               |   (select d_year AS ws_sold_year, ws_item_sk,
               |     ws_bill_customer_sk ws_customer_sk,
               |     sum(ws_quantity) ws_qty,
               |     sum(ws_wholesale_cost) ws_wc,
               |     sum(ws_sales_price) ws_sp
-              |    from web_sales
-              |    left join web_returns on wr_order_number=ws_order_number and ws_item_sk=wr_item_sk
-              |    join date_dim on ws_sold_date_sk = d_date_sk
+              |    from ${tablePrefix}web_sales
+              |    left join ${tablePrefix}web_returns on wr_order_number=ws_order_number and ws_item_sk=wr_item_sk
+              |    join ${tablePrefix}date_dim on ws_sold_date_sk = d_date_sk
               |    where wr_order_number is null
               |    group by d_year, ws_item_sk, ws_bill_customer_sk
               |    ),
@@ -3168,9 +3176,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |     sum(cs_quantity) cs_qty,
               |     sum(cs_wholesale_cost) cs_wc,
               |     sum(cs_sales_price) cs_sp
-              |    from catalog_sales
-              |    left join catalog_returns on cr_order_number=cs_order_number and cs_item_sk=cr_item_sk
-              |    join date_dim on cs_sold_date_sk = d_date_sk
+              |    from ${tablePrefix}catalog_sales
+              |    left join ${tablePrefix}catalog_returns on cr_order_number=cs_order_number and cs_item_sk=cr_item_sk
+              |    join ${tablePrefix}date_dim on cs_sold_date_sk = d_date_sk
               |    where cr_order_number is null
               |    group by d_year, cs_item_sk, cs_bill_customer_sk
               |    ),
@@ -3180,9 +3188,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |     sum(ss_quantity) ss_qty,
               |     sum(ss_wholesale_cost) ss_wc,
               |     sum(ss_sales_price) ss_sp
-              |    from store_sales
-              |    left join store_returns on sr_ticket_number=ss_ticket_number and ss_item_sk=sr_item_sk
-              |    join date_dim on ss_sold_date_sk = d_date_sk
+              |    from ${tablePrefix}store_sales
+              |    left join ${tablePrefix}store_returns on sr_ticket_number=ss_ticket_number and ss_item_sk=sr_item_sk
+              |    join ${tablePrefix}date_dim on ss_sold_date_sk = d_date_sk
               |    where sr_ticket_number is null
               |    group by d_year, ss_item_sk, ss_customer_sk
               |    )
@@ -3205,40 +3213,40 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |   round(ss_qty/(coalesce(ws_qty+cs_qty,1)),2)
               |  limit 100
             """.stripMargin),
-    ("q79", """
+    ("q79", s"""
               | select
               |  c_last_name,c_first_name,substr(s_city,1,30),ss_ticket_number,amt,profit
               |  from
               |   (select ss_ticket_number
               |          ,ss_customer_sk
-              |          ,store.s_city
+              |          ,${tablePrefix}store.s_city
               |          ,sum(ss_coupon_amt) amt
               |          ,sum(ss_net_profit) profit
-              |    from store_sales,date_dim,store,household_demographics
-              |    where store_sales.ss_sold_date_sk = date_dim.d_date_sk
-              |    and store_sales.ss_store_sk = store.s_store_sk
-              |    and store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
-              |    and (household_demographics.hd_dep_count = 6 or
-              |        household_demographics.hd_vehicle_count > 2)
-              |    and date_dim.d_dow = 1
-              |    and date_dim.d_year in (1999,1999+1,1999+2)
-              |    and store.s_number_employees between 200 and 295
-              |    group by ss_ticket_number,ss_customer_sk,ss_addr_sk,store.s_city) ms,customer
+              |    from ${tablePrefix}store_sales,${tablePrefix}date_dim,${tablePrefix}store,${tablePrefix}household_demographics
+              |    where ${tablePrefix}store_sales.ss_sold_date_sk = ${tablePrefix}date_dim.d_date_sk
+              |    and ${tablePrefix}store_sales.ss_store_sk = ${tablePrefix}store.s_store_sk
+              |    and ${tablePrefix}store_sales.ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
+              |    and (${tablePrefix}household_demographics.hd_dep_count = 6 or
+              |        ${tablePrefix}household_demographics.hd_vehicle_count > 2)
+              |    and ${tablePrefix}date_dim.d_dow = 1
+              |    and ${tablePrefix}date_dim.d_year in (1999,1999+1,1999+2)
+              |    and ${tablePrefix}store.s_number_employees between 200 and 295
+              |    group by ss_ticket_number,ss_customer_sk,ss_addr_sk,${tablePrefix}store.s_city) ms,${tablePrefix}customer
               |    where ss_customer_sk = c_customer_sk
               | order by c_last_name,c_first_name,substr(s_city,1,30), profit
               | limit 100
             """.stripMargin),
     // Modifications: "+ days" -> date_add
     // Modifications: "||" -> "concat"
-    ("q80", """
+    ("q80", s"""
               | with ssr as
               | (select  s_store_id as store_id,
               |          sum(ss_ext_sales_price) as sales,
               |          sum(coalesce(sr_return_amt, 0)) as returns,
               |          sum(ss_net_profit - coalesce(sr_net_loss, 0)) as profit
-              |  from store_sales left outer join store_returns on
+              |  from ${tablePrefix}store_sales left outer join ${tablePrefix}store_returns on
               |         (ss_item_sk = sr_item_sk and ss_ticket_number = sr_ticket_number),
-              |     date_dim, store, item, promotion
+              |     ${tablePrefix}date_dim, ${tablePrefix}store, ${tablePrefix}item, ${tablePrefix}promotion
               | where ss_sold_date_sk = d_date_sk
               |       and d_date between cast('2000-08-23' as date)
               |                  and date_add(cast('2000-08-23' as date), 30)
@@ -3253,9 +3261,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |          sum(cs_ext_sales_price) as sales,
               |          sum(coalesce(cr_return_amount, 0)) as returns,
               |          sum(cs_net_profit - coalesce(cr_net_loss, 0)) as profit
-              |  from catalog_sales left outer join catalog_returns on
+              |  from ${tablePrefix}catalog_sales left outer join ${tablePrefix}catalog_returns on
               |         (cs_item_sk = cr_item_sk and cs_order_number = cr_order_number),
-              |     date_dim, catalog_page, item, promotion
+              |     ${tablePrefix}date_dim, ${tablePrefix}catalog_page, ${tablePrefix}item, ${tablePrefix}promotion
               | where cs_sold_date_sk = d_date_sk
               |       and d_date between cast('2000-08-23' as date)
               |                  and date_add(cast('2000-08-23' as date), 30)
@@ -3270,9 +3278,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |          sum(ws_ext_sales_price) as sales,
               |          sum(coalesce(wr_return_amt, 0)) as returns,
               |          sum(ws_net_profit - coalesce(wr_net_loss, 0)) as profit
-              |  from web_sales left outer join web_returns on
+              |  from ${tablePrefix}web_sales left outer join ${tablePrefix}web_returns on
               |         (ws_item_sk = wr_item_sk and ws_order_number = wr_order_number),
-              |     date_dim, web_site, item, promotion
+              |     ${tablePrefix}date_dim, ${tablePrefix}web_site, ${tablePrefix}item, ${tablePrefix}promotion
               | where ws_sold_date_sk = d_date_sk
               |       and d_date between cast('2000-08-23' as date)
               |                  and date_add(cast('2000-08-23' as date), 30)
@@ -3299,12 +3307,12 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by channel, id
               | limit 100
             """.stripMargin),
-    ("q81", """
+    ("q81", s"""
               | with customer_total_return as
               | (select
               |    cr_returning_customer_sk as ctr_customer_sk, ca_state as ctr_state,
               |        sum(cr_return_amt_inc_tax) as ctr_total_return
-              | from catalog_returns, date_dim, customer_address
+              | from ${tablePrefix}catalog_returns, ${tablePrefix}date_dim, ${tablePrefix}customer_address
               | where cr_returned_date_sk = d_date_sk
               |   and d_year = 2000
               |   and cr_returning_addr_sk = ca_address_sk
@@ -3313,7 +3321,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |    c_customer_id,c_salutation,c_first_name,c_last_name,ca_street_number,ca_street_name,
               |    ca_street_type,ca_suite_number,ca_city,ca_county,ca_state,ca_zip,ca_country,
               |    ca_gmt_offset,ca_location_type,ctr_total_return
-              | from customer_total_return ctr1, customer_address, customer
+              | from customer_total_return ctr1, ${tablePrefix}customer_address, ${tablePrefix}customer
               | where ctr1.ctr_total_return > (select avg(ctr_total_return)*1.2
               | 			  from customer_total_return ctr2
               |                  	  where ctr1.ctr_state = ctr2.ctr_state)
@@ -3325,9 +3333,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |                  ,ca_location_type,ctr_total_return
               | limit 100
             """.stripMargin),
-    ("q82", """
+    ("q82", s"""
               | select i_item_id, i_item_desc, i_current_price
-              | from item, inventory, date_dim, store_sales
+              | from ${tablePrefix}item, ${tablePrefix}inventory, ${tablePrefix}date_dim, ${tablePrefix}store_sales
               | where i_current_price between 62 and 62+30
               |   and inv_item_sk = i_item_sk
               |   and d_date_sk=inv_date_sk
@@ -3339,29 +3347,29 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by i_item_id
               | limit 100
             """.stripMargin),
-    ("q83", """
+    ("q83", s"""
               | with sr_items as
               |  (select i_item_id item_id, sum(sr_return_quantity) sr_item_qty
-              |   from store_returns, item, date_dim
+              |   from ${tablePrefix}store_returns, ${tablePrefix}item, ${tablePrefix}date_dim
               |   where sr_item_sk = i_item_sk
-              |      and  d_date in (select d_date from date_dim where d_week_seq in
-              |		      (select d_week_seq from date_dim where d_date in ('2000-06-30','2000-09-27','2000-11-17')))
+              |      and  d_date in (select d_date from ${tablePrefix}date_dim where d_week_seq in
+              |		      (select d_week_seq from ${tablePrefix}date_dim where d_date in ('2000-06-30','2000-09-27','2000-11-17')))
               |      and sr_returned_date_sk   = d_date_sk
               |   group by i_item_id),
               | cr_items as
               |  (select i_item_id item_id, sum(cr_return_quantity) cr_item_qty
-              |  from catalog_returns, item, date_dim
+              |  from ${tablePrefix}catalog_returns, ${tablePrefix}item, ${tablePrefix}date_dim
               |  where cr_item_sk = i_item_sk
-              |      and d_date in (select d_date from date_dim where d_week_seq in
-              |		      (select d_week_seq from date_dim where d_date in ('2000-06-30','2000-09-27','2000-11-17')))
+              |      and d_date in (select d_date from ${tablePrefix}date_dim where d_week_seq in
+              |		      (select d_week_seq from ${tablePrefix}date_dim where d_date in ('2000-06-30','2000-09-27','2000-11-17')))
               |      and cr_returned_date_sk   = d_date_sk
               |      group by i_item_id),
               | wr_items as
               |  (select i_item_id item_id, sum(wr_return_quantity) wr_item_qty
-              |  from web_returns, item, date_dim
+              |  from ${tablePrefix}web_returns, ${tablePrefix}item, ${tablePrefix}date_dim
               |  where wr_item_sk = i_item_sk and d_date in
-              |      (select d_date	from date_dim	where d_week_seq in
-              |		      (select d_week_seq from date_dim where d_date in ('2000-06-30','2000-09-27','2000-11-17')))
+              |      (select d_date	from ${tablePrefix}date_dim	where d_week_seq in
+              |		      (select d_week_seq from ${tablePrefix}date_dim where d_date in ('2000-06-30','2000-09-27','2000-11-17')))
               |    and wr_returned_date_sk = d_date_sk
               |  group by i_item_id)
               | select sr_items.item_id
@@ -3379,15 +3387,15 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | limit 100
             """.stripMargin),
     // Modifications: "||" -> concat
-    ("q84", """
+    ("q84", s"""
               | select c_customer_id as customer_id
               |       ,concat(c_last_name, ', ', c_first_name) as customername
-              | from customer
-              |     ,customer_address
-              |     ,customer_demographics
-              |     ,household_demographics
-              |     ,income_band
-              |     ,store_returns
+              | from ${tablePrefix}customer
+              |     ,${tablePrefix}customer_address
+              |     ,${tablePrefix}customer_demographics
+              |     ,${tablePrefix}household_demographics
+              |     ,${tablePrefix}income_band
+              |     ,${tablePrefix}store_returns
               | where ca_city	        =  'Edgewood'
               |   and c_current_addr_sk = ca_address_sk
               |   and ib_lower_bound   >=  38128
@@ -3399,11 +3407,11 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by c_customer_id
               | limit 100
             """.stripMargin),
-    ("q85", """
+    ("q85", s"""
               | select
               |    substr(r_reason_desc,1,20), avg(ws_quantity), avg(wr_refunded_cash), avg(wr_fee)
-              | from web_sales, web_returns, web_page, customer_demographics cd1,
-              |      customer_demographics cd2, customer_address, date_dim, reason
+              | from ${tablePrefix}web_sales, ${tablePrefix}web_returns, ${tablePrefix}web_page, ${tablePrefix}customer_demographics cd1,
+              |      ${tablePrefix}customer_demographics cd2, ${tablePrefix}customer_address, ${tablePrefix}date_dim, ${tablePrefix}reason
               | where ws_web_page_sk = wp_web_page_sk
               |   and ws_item_sk = wr_item_sk
               |   and ws_order_number = wr_order_number
@@ -3480,7 +3488,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |        ,avg(wr_fee)
               | limit 100
             """.stripMargin),
-    ("q86", """
+    ("q86", s"""
               | select sum(ws_net_paid) as total_sum, i_category, i_class,
               |  grouping(i_category)+grouping(i_class) as lochierarchy,
               |  rank() over (
@@ -3488,7 +3496,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | 	    case when grouping(i_class) = 0 then i_category end
               | 	    order by sum(ws_net_paid) desc) as rank_within_parent
               | from
-              |    web_sales, date_dim d1, item
+              |    ${tablePrefix}web_sales, ${tablePrefix}date_dim d1, ${tablePrefix}item
               | where
               |    d1.d_month_seq between 1200 and 1200+11
               | and d1.d_date_sk = ws_sold_date_sk
@@ -3500,120 +3508,120 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |   rank_within_parent
               | limit 100
             """.stripMargin),
-    ("q87", """
+    ("q87", s"""
               | select count(*)
               | from ((select distinct c_last_name, c_first_name, d_date
-              |       from store_sales, date_dim, customer
-              |       where store_sales.ss_sold_date_sk = date_dim.d_date_sk
-              |         and store_sales.ss_customer_sk = customer.c_customer_sk
+              |       from ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}customer
+              |       where ${tablePrefix}store_sales.ss_sold_date_sk = ${tablePrefix}date_dim.d_date_sk
+              |         and ${tablePrefix}store_sales.ss_customer_sk = ${tablePrefix}customer.c_customer_sk
               |         and d_month_seq between 1200 and 1200+11)
               |       except
               |      (select distinct c_last_name, c_first_name, d_date
-              |       from catalog_sales, date_dim, customer
-              |       where catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
-              |         and catalog_sales.cs_bill_customer_sk = customer.c_customer_sk
+              |       from ${tablePrefix}catalog_sales, ${tablePrefix}date_dim, ${tablePrefix}customer
+              |       where ${tablePrefix}catalog_sales.cs_sold_date_sk = ${tablePrefix}date_dim.d_date_sk
+              |         and ${tablePrefix}catalog_sales.cs_bill_customer_sk = ${tablePrefix}customer.c_customer_sk
               |         and d_month_seq between 1200 and 1200+11)
               |       except
               |      (select distinct c_last_name, c_first_name, d_date
-              |       from web_sales, date_dim, customer
-              |       where web_sales.ws_sold_date_sk = date_dim.d_date_sk
-              |         and web_sales.ws_bill_customer_sk = customer.c_customer_sk
+              |       from ${tablePrefix}web_sales, ${tablePrefix}date_dim, ${tablePrefix}customer
+              |       where ${tablePrefix}web_sales.ws_sold_date_sk = ${tablePrefix}date_dim.d_date_sk
+              |         and ${tablePrefix}web_sales.ws_bill_customer_sk = ${tablePrefix}customer.c_customer_sk
               |         and d_month_seq between 1200 and 1200+11)
               |) cool_cust
             """.stripMargin),
-    ("q88", """
+    ("q88", s"""
               | select  *
               | from
               |   (select count(*) h8_30_to_9
-              |    from store_sales, household_demographics , time_dim, store
-              |    where ss_sold_time_sk = time_dim.t_time_sk
-              |     and ss_hdemo_sk = household_demographics.hd_demo_sk
+              |    from ${tablePrefix}store_sales, ${tablePrefix}household_demographics , ${tablePrefix}time_dim, ${tablePrefix}store
+              |    where ss_sold_time_sk = ${tablePrefix}time_dim.t_time_sk
+              |     and ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
               |     and ss_store_sk = s_store_sk
-              |     and time_dim.t_hour = 8
-              |     and time_dim.t_minute >= 30
-              |     and ((household_demographics.hd_dep_count = 4 and household_demographics.hd_vehicle_count<=4+2) or
-              |          (household_demographics.hd_dep_count = 2 and household_demographics.hd_vehicle_count<=2+2) or
-              |          (household_demographics.hd_dep_count = 0 and household_demographics.hd_vehicle_count<=0+2))
-              |     and store.s_store_name = 'ese') s1,
+              |     and ${tablePrefix}time_dim.t_hour = 8
+              |     and ${tablePrefix}time_dim.t_minute >= 30
+              |     and ((${tablePrefix}household_demographics.hd_dep_count = 4 and ${tablePrefix}household_demographics.hd_vehicle_count<=4+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 2 and ${tablePrefix}household_demographics.hd_vehicle_count<=2+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 0 and ${tablePrefix}household_demographics.hd_vehicle_count<=0+2))
+              |     and ${tablePrefix}store.s_store_name = 'ese') s1,
               |   (select count(*) h9_to_9_30
-              |    from store_sales, household_demographics , time_dim, store
-              |    where ss_sold_time_sk = time_dim.t_time_sk
-              |      and ss_hdemo_sk = household_demographics.hd_demo_sk
+              |    from ${tablePrefix}store_sales, ${tablePrefix}household_demographics , ${tablePrefix}time_dim, ${tablePrefix}store
+              |    where ss_sold_time_sk = ${tablePrefix}time_dim.t_time_sk
+              |      and ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
               |      and ss_store_sk = s_store_sk
-              |      and time_dim.t_hour = 9
-              |      and time_dim.t_minute < 30
-              |      and ((household_demographics.hd_dep_count = 4 and household_demographics.hd_vehicle_count<=4+2) or
-              |          (household_demographics.hd_dep_count = 2 and household_demographics.hd_vehicle_count<=2+2) or
-              |          (household_demographics.hd_dep_count = 0 and household_demographics.hd_vehicle_count<=0+2))
-              |      and store.s_store_name = 'ese') s2,
+              |      and ${tablePrefix}time_dim.t_hour = 9
+              |      and ${tablePrefix}time_dim.t_minute < 30
+              |      and ((${tablePrefix}household_demographics.hd_dep_count = 4 and ${tablePrefix}household_demographics.hd_vehicle_count<=4+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 2 and ${tablePrefix}household_demographics.hd_vehicle_count<=2+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 0 and ${tablePrefix}household_demographics.hd_vehicle_count<=0+2))
+              |      and ${tablePrefix}store.s_store_name = 'ese') s2,
               | (select count(*) h9_30_to_10
-              | from store_sales, household_demographics , time_dim, store
-              | where ss_sold_time_sk = time_dim.t_time_sk
-              |     and ss_hdemo_sk = household_demographics.hd_demo_sk
+              | from ${tablePrefix}store_sales, ${tablePrefix}household_demographics , ${tablePrefix}time_dim, ${tablePrefix}store
+              | where ss_sold_time_sk = ${tablePrefix}time_dim.t_time_sk
+              |     and ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
               |     and ss_store_sk = s_store_sk
-              |     and time_dim.t_hour = 9
-              |     and time_dim.t_minute >= 30
-              |     and ((household_demographics.hd_dep_count = 4 and household_demographics.hd_vehicle_count<=4+2) or
-              |          (household_demographics.hd_dep_count = 2 and household_demographics.hd_vehicle_count<=2+2) or
-              |          (household_demographics.hd_dep_count = 0 and household_demographics.hd_vehicle_count<=0+2))
-              |     and store.s_store_name = 'ese') s3,
+              |     and ${tablePrefix}time_dim.t_hour = 9
+              |     and ${tablePrefix}time_dim.t_minute >= 30
+              |     and ((${tablePrefix}household_demographics.hd_dep_count = 4 and ${tablePrefix}household_demographics.hd_vehicle_count<=4+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 2 and ${tablePrefix}household_demographics.hd_vehicle_count<=2+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 0 and ${tablePrefix}household_demographics.hd_vehicle_count<=0+2))
+              |     and ${tablePrefix}store.s_store_name = 'ese') s3,
               | (select count(*) h10_to_10_30
-              | from store_sales, household_demographics , time_dim, store
-              | where ss_sold_time_sk = time_dim.t_time_sk
-              |     and ss_hdemo_sk = household_demographics.hd_demo_sk
+              | from ${tablePrefix}store_sales, ${tablePrefix}household_demographics , ${tablePrefix}time_dim, ${tablePrefix}store
+              | where ss_sold_time_sk = ${tablePrefix}time_dim.t_time_sk
+              |     and ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
               |     and ss_store_sk = s_store_sk
-              |     and time_dim.t_hour = 10
-              |     and time_dim.t_minute < 30
-              |     and ((household_demographics.hd_dep_count = 4 and household_demographics.hd_vehicle_count<=4+2) or
-              |          (household_demographics.hd_dep_count = 2 and household_demographics.hd_vehicle_count<=2+2) or
-              |          (household_demographics.hd_dep_count = 0 and household_demographics.hd_vehicle_count<=0+2))
-              |     and store.s_store_name = 'ese') s4,
+              |     and ${tablePrefix}time_dim.t_hour = 10
+              |     and ${tablePrefix}time_dim.t_minute < 30
+              |     and ((${tablePrefix}household_demographics.hd_dep_count = 4 and ${tablePrefix}household_demographics.hd_vehicle_count<=4+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 2 and ${tablePrefix}household_demographics.hd_vehicle_count<=2+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 0 and ${tablePrefix}household_demographics.hd_vehicle_count<=0+2))
+              |     and ${tablePrefix}store.s_store_name = 'ese') s4,
               | (select count(*) h10_30_to_11
-              | from store_sales, household_demographics , time_dim, store
-              | where ss_sold_time_sk = time_dim.t_time_sk
-              |     and ss_hdemo_sk = household_demographics.hd_demo_sk
+              | from ${tablePrefix}store_sales, ${tablePrefix}household_demographics , ${tablePrefix}time_dim, ${tablePrefix}store
+              | where ss_sold_time_sk = ${tablePrefix}time_dim.t_time_sk
+              |     and ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
               |     and ss_store_sk = s_store_sk
-              |     and time_dim.t_hour = 10
-              |     and time_dim.t_minute >= 30
-              |     and ((household_demographics.hd_dep_count = 4 and household_demographics.hd_vehicle_count<=4+2) or
-              |          (household_demographics.hd_dep_count = 2 and household_demographics.hd_vehicle_count<=2+2) or
-              |          (household_demographics.hd_dep_count = 0 and household_demographics.hd_vehicle_count<=0+2))
-              |     and store.s_store_name = 'ese') s5,
+              |     and ${tablePrefix}time_dim.t_hour = 10
+              |     and ${tablePrefix}time_dim.t_minute >= 30
+              |     and ((${tablePrefix}household_demographics.hd_dep_count = 4 and ${tablePrefix}household_demographics.hd_vehicle_count<=4+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 2 and ${tablePrefix}household_demographics.hd_vehicle_count<=2+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 0 and ${tablePrefix}household_demographics.hd_vehicle_count<=0+2))
+              |     and ${tablePrefix}store.s_store_name = 'ese') s5,
               | (select count(*) h11_to_11_30
-              | from store_sales, household_demographics , time_dim, store
+              | from ${tablePrefix}store_sales, ${tablePrefix}household_demographics , ${tablePrefix}time_dim, ${tablePrefix}store
               | where ss_sold_time_sk = time_dim.t_time_sk
-              |     and ss_hdemo_sk = household_demographics.hd_demo_sk
+              |     and ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
               |     and ss_store_sk = s_store_sk
-              |     and time_dim.t_hour = 11
-              |     and time_dim.t_minute < 30
-              |     and ((household_demographics.hd_dep_count = 4 and household_demographics.hd_vehicle_count<=4+2) or
-              |          (household_demographics.hd_dep_count = 2 and household_demographics.hd_vehicle_count<=2+2) or
-              |          (household_demographics.hd_dep_count = 0 and household_demographics.hd_vehicle_count<=0+2))
-              |     and store.s_store_name = 'ese') s6,
+              |     and ${tablePrefix}time_dim.t_hour = 11
+              |     and ${tablePrefix}time_dim.t_minute < 30
+              |     and ((${tablePrefix}household_demographics.hd_dep_count = 4 and ${tablePrefix}household_demographics.hd_vehicle_count<=4+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 2 and ${tablePrefix}household_demographics.hd_vehicle_count<=2+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 0 and ${tablePrefix}household_demographics.hd_vehicle_count<=0+2))
+              |     and ${tablePrefix}store.s_store_name = 'ese') s6,
               | (select count(*) h11_30_to_12
-              | from store_sales, household_demographics , time_dim, store
-              | where ss_sold_time_sk = time_dim.t_time_sk
-              |     and ss_hdemo_sk = household_demographics.hd_demo_sk
+              | from ${tablePrefix}store_sales, ${tablePrefix}household_demographics , ${tablePrefix}time_dim, ${tablePrefix}store
+              | where ss_sold_time_sk = ${tablePrefix}time_dim.t_time_sk
+              |     and ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
               |     and ss_store_sk = s_store_sk
-              |     and time_dim.t_hour = 11
-              |     and time_dim.t_minute >= 30
-              |     and ((household_demographics.hd_dep_count = 4 and household_demographics.hd_vehicle_count<=4+2) or
-              |          (household_demographics.hd_dep_count = 2 and household_demographics.hd_vehicle_count<=2+2) or
-              |          (household_demographics.hd_dep_count = 0 and household_demographics.hd_vehicle_count<=0+2))
-              |     and store.s_store_name = 'ese') s7,
+              |     and ${tablePrefix}time_dim.t_hour = 11
+              |     and ${tablePrefix}time_dim.t_minute >= 30
+              |     and ((${tablePrefix}household_demographics.hd_dep_count = 4 and ${tablePrefix}household_demographics.hd_vehicle_count<=4+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 2 and ${tablePrefix}household_demographics.hd_vehicle_count<=2+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 0 and ${tablePrefix}household_demographics.hd_vehicle_count<=0+2))
+              |     and ${tablePrefix}store.s_store_name = 'ese') s7,
               | (select count(*) h12_to_12_30
-              | from store_sales, household_demographics , time_dim, store
-              | where ss_sold_time_sk = time_dim.t_time_sk
-              |     and ss_hdemo_sk = household_demographics.hd_demo_sk
+              | from ${tablePrefix}store_sales, ${tablePrefix}household_demographics , ${tablePrefix}time_dim, ${tablePrefix}store
+              | where ss_sold_time_sk = ${tablePrefix}time_dim.t_time_sk
+              |     and ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
               |     and ss_store_sk = s_store_sk
-              |     and time_dim.t_hour = 12
-              |     and time_dim.t_minute < 30
-              |     and ((household_demographics.hd_dep_count = 4 and household_demographics.hd_vehicle_count<=4+2) or
-              |          (household_demographics.hd_dep_count = 2 and household_demographics.hd_vehicle_count<=2+2) or
-              |          (household_demographics.hd_dep_count = 0 and household_demographics.hd_vehicle_count<=0+2))
-              |     and store.s_store_name = 'ese') s8
+              |     and ${tablePrefix}time_dim.t_hour = 12
+              |     and ${tablePrefix}time_dim.t_minute < 30
+              |     and ((${tablePrefix}household_demographics.hd_dep_count = 4 and ${tablePrefix}household_demographics.hd_vehicle_count<=4+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 2 and ${tablePrefix}household_demographics.hd_vehicle_count<=2+2) or
+              |          (${tablePrefix}household_demographics.hd_dep_count = 0 and ${tablePrefix}household_demographics.hd_vehicle_count<=0+2))
+              |     and ${tablePrefix}store.s_store_name = 'ese') s8
             """.stripMargin),
-    ("q89", """
+    ("q89", s"""
               | select *
               | from(
               | select i_category, i_class, i_brand,
@@ -3623,7 +3631,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |       avg(sum(ss_sales_price)) over
               |         (partition by i_category, i_brand, s_store_name, s_company_name)
               |         avg_monthly_sales
-              | from item, store_sales, date_dim, store
+              | from ${tablePrefix}item, ${tablePrefix}store_sales, ${tablePrefix}date_dim, ${tablePrefix}store
               | where ss_item_sk = i_item_sk and
               |      ss_sold_date_sk = d_date_sk and
               |      ss_store_sk = s_store_sk and
@@ -3638,34 +3646,34 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by sum_sales - avg_monthly_sales, s_store_name
               | limit 100
             """.stripMargin),
-    ("q90", """
+    ("q90", s"""
               | select cast(amc as decimal(15,4))/cast(pmc as decimal(15,4)) am_pm_ratio
               | from ( select count(*) amc
-              |       from web_sales, household_demographics , time_dim, web_page
-              |       where ws_sold_time_sk = time_dim.t_time_sk
-              |         and ws_ship_hdemo_sk = household_demographics.hd_demo_sk
-              |         and ws_web_page_sk = web_page.wp_web_page_sk
-              |         and time_dim.t_hour between 8 and 8+1
-              |         and household_demographics.hd_dep_count = 6
-              |         and web_page.wp_char_count between 5000 and 5200) at,
+              |       from ${tablePrefix}web_sales, ${tablePrefix}household_demographics , ${tablePrefix}time_dim, ${tablePrefix}web_page
+              |       where ws_sold_time_sk = ${tablePrefix}time_dim.t_time_sk
+              |         and ws_ship_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
+              |         and ws_web_page_sk = ${tablePrefix}web_page.wp_web_page_sk
+              |         and ${tablePrefix}time_dim.t_hour between 8 and 8+1
+              |         and ${tablePrefix}household_demographics.hd_dep_count = 6
+              |         and ${tablePrefix}web_page.wp_char_count between 5000 and 5200) at,
               |      ( select count(*) pmc
-              |       from web_sales, household_demographics , time_dim, web_page
-              |       where ws_sold_time_sk = time_dim.t_time_sk
-              |         and ws_ship_hdemo_sk = household_demographics.hd_demo_sk
-              |         and ws_web_page_sk = web_page.wp_web_page_sk
-              |         and time_dim.t_hour between 19 and 19+1
-              |         and household_demographics.hd_dep_count = 6
-              |         and web_page.wp_char_count between 5000 and 5200) pt
+              |       from ${tablePrefix}web_sales, ${tablePrefix}household_demographics , ${tablePrefix}time_dim, ${tablePrefix}web_page
+              |       where ws_sold_time_sk = ${tablePrefix}time_dim.t_time_sk
+              |         and ws_ship_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
+              |         and ws_web_page_sk = ${tablePrefix}web_page.wp_web_page_sk
+              |         and ${tablePrefix}time_dim.t_hour between 19 and 19+1
+              |         and ${tablePrefix}household_demographics.hd_dep_count = 6
+              |         and ${tablePrefix}web_page.wp_char_count between 5000 and 5200) pt
               | order by am_pm_ratio
               | limit 100
             """.stripMargin),
-    ("q91", """
+    ("q91", s"""
               | select
               |        cc_call_center_id Call_Center, cc_name Call_Center_Name, cc_manager Manager,
               |        sum(cr_net_loss) Returns_Loss
               | from
-              |        call_center, catalog_returns, date_dim, customer, customer_address,
-              |        customer_demographics, household_demographics
+              |        ${tablePrefix}call_center, ${tablePrefix}catalog_returns, ${tablePrefix}date_dim, ${tablePrefix}customer, ${tablePrefix}customer_address,
+              |        ${tablePrefix}customer_demographics, ${tablePrefix}household_demographics
               | where
               |        cr_call_center_sk        = cc_call_center_sk
               | and    cr_returned_date_sk      = d_date_sk
@@ -3684,9 +3692,9 @@ class TPCDSSelection extends HardcodedQueryProvider {
             """.stripMargin),
     // Modifications: "+ days" -> date_add
     // Modifications: " -> `
-    ("q92", """
+    ("q92", s"""
               | select sum(ws_ext_discount_amt) as `Excess Discount Amount"
-              | from web_sales, item, date_dim
+              | from ${tablePrefix}web_sales, ${tablePrefix}item, ${tablePrefix}date_dim
               | where i_manufact_id = 350
               | and i_item_sk = ws_item_sk
               | and d_date between '2000-01-27' and date_add(cast('2000-01-27' as date), 90)
@@ -3694,7 +3702,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | and ws_ext_discount_amt >
               |     (
               |       SELECT 1.3 * avg(ws_ext_discount_amt)
-              |       FROM web_sales, date_dim
+              |       FROM ${tablePrefix}web_sales, ${tablePrefix}date_dim
               |       WHERE ws_item_sk = i_item_sk
               |         and d_date between '2000-01-27' and date_add(cast('2000-01-27' as date), 90)
               |         and d_date_sk = ws_sold_date_sk
@@ -3702,16 +3710,16 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | order by sum(ws_ext_discount_amt)
               | limit 100
             """.stripMargin),
-    ("q93", """
+    ("q93", s"""
               | select ss_customer_sk, sum(act_sales) sumsales
               | from (select
               |         ss_item_sk, ss_ticket_number, ss_customer_sk,
               |         case when sr_return_quantity is not null then (ss_quantity-sr_return_quantity)*ss_sales_price
               |                                                  else (ss_quantity*ss_sales_price) end act_sales
-              |       from store_sales
-              |       left outer join store_returns
+              |       from ${tablePrefix}store_sales
+              |       left outer join ${tablePrefix}store_returns
               |       on (sr_item_sk = ss_item_sk and sr_ticket_number = ss_ticket_number),
-              |       reason
+              |       ${tablePrefix}reason
               |       where sr_reason_sk = r_reason_sk and r_reason_desc = 'reason 28') t
               | group by ss_customer_sk
               | order by sumsales, ss_customer_sk
@@ -3719,13 +3727,13 @@ class TPCDSSelection extends HardcodedQueryProvider {
             """.stripMargin),
     // Modifications: "+ days" -> date_add
     // Modifications: " -> `
-    ("q94", """
+    ("q94", s"""
               | select
               |    count(distinct ws_order_number) as `order count`
               |   ,sum(ws_ext_ship_cost) as `total shipping cost`
               |   ,sum(ws_net_profit) as `total net profit`
               | from
-              |    web_sales ws1, date_dim, customer_address, web_site
+              |    ${tablePrefix}web_sales ws1, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}web_site
               | where
               |     d_date between '1999-02-01' and
               |            date_add(cast('1999-02-01' as date), 60)
@@ -3735,20 +3743,20 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | and ws1.ws_web_site_sk = web_site_sk
               | and web_company_name = 'pri'
               | and exists (select *
-              |             from web_sales ws2
+              |             from ${tablePrefix}web_sales ws2
               |             where ws1.ws_order_number = ws2.ws_order_number
               |               and ws1.ws_warehouse_sk <> ws2.ws_warehouse_sk)
               | and not exists(select *
-              |                from web_returns wr1
+              |                from ${tablePrefix}web_returns wr1
               |                where ws1.ws_order_number = wr1.wr_order_number)
               | order by count(distinct ws_order_number)
               | limit 100
             """.stripMargin),
     // Modifications: "+ days" -> date_add
-    ("q95", """
+    ("q95", s"""
               | with ws_wh as
               | (select ws1.ws_order_number,ws1.ws_warehouse_sk wh1,ws2.ws_warehouse_sk wh2
-              |  from web_sales ws1,web_sales ws2
+              |  from ${tablePrefix}web_sales ws1,${tablePrefix}web_sales ws2
               |  where ws1.ws_order_number = ws2.ws_order_number
               |    and ws1.ws_warehouse_sk <> ws2.ws_warehouse_sk)
               | select
@@ -3756,7 +3764,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |   ,sum(ws_ext_ship_cost) as `total shipping cost"
               |   ,sum(ws_net_profit) as `total net profit"
               | from
-              |    web_sales ws1, date_dim, customer_address, web_site
+              |    ${tablePrefix}web_sales ws1, ${tablePrefix}date_dim, ${tablePrefix}customer_address, ${tablePrefix}web_site
               | where
               |     d_date between '1999-02-01' and
               |            date_add(cast('1999-02-01' as date), 60)
@@ -3768,34 +3776,34 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | and ws1.ws_order_number in (select ws_order_number
               |                             from ws_wh)
               | and ws1.ws_order_number in (select wr_order_number
-              |                             from web_returns,ws_wh
+              |                             from ${tablePrefix}web_returns,ws_wh
               |                             where wr_order_number = ws_wh.ws_order_number)
               | order by count(distinct ws_order_number)
               | limit 100
             """.stripMargin),
-    ("q96", """
+    ("q96", s"""
               | select count(*)
-              | from store_sales, household_demographics, time_dim, store
-              | where ss_sold_time_sk = time_dim.t_time_sk
-              |     and ss_hdemo_sk = household_demographics.hd_demo_sk
+              | from ${tablePrefix}store_sales, ${tablePrefix}household_demographics, ${tablePrefix}time_dim, ${tablePrefix}store
+              | where ss_sold_time_sk = ${tablePrefix}time_dim.t_time_sk
+              |     and ss_hdemo_sk = ${tablePrefix}household_demographics.hd_demo_sk
               |     and ss_store_sk = s_store_sk
-              |     and time_dim.t_hour = 20
-              |     and time_dim.t_minute >= 30
-              |     and household_demographics.hd_dep_count = 7
-              |     and store.s_store_name = 'ese'
+              |     and ${tablePrefix}time_dim.t_hour = 20
+              |     and ${tablePrefix}time_dim.t_minute >= 30
+              |     and ${tablePrefix}household_demographics.hd_dep_count = 7
+              |     and ${tablePrefix}store.s_store_name = 'ese'
               | order by count(*)
               | limit 100
             """.stripMargin),
-    ("q97", """
+    ("q97", s"""
               | with ssci as (
               | select ss_customer_sk customer_sk, ss_item_sk item_sk
-              | from store_sales,date_dim
+              | from ${tablePrefix}store_sales,${tablePrefix}date_dim
               | where ss_sold_date_sk = d_date_sk
               |   and d_month_seq between 1200 and 1200 + 11
               | group by ss_customer_sk, ss_item_sk),
               | csci as(
               |  select cs_bill_customer_sk customer_sk, cs_item_sk item_sk
-              | from catalog_sales,date_dim
+              | from ${tablePrefix}catalog_sales,${tablePrefix}date_dim
               | where cs_sold_date_sk = d_date_sk
               |   and d_month_seq between 1200 and 1200 + 11
               | group by cs_bill_customer_sk, cs_item_sk)
@@ -3807,13 +3815,13 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | limit 100
             """.stripMargin),
     // Modifications: "+ days" -> date_add
-    ("q98", """
+    ("q98", s"""
               |select i_item_desc, i_category, i_class, i_current_price
               |      ,sum(ss_ext_sales_price) as itemrevenue
               |      ,sum(ss_ext_sales_price)*100/sum(sum(ss_ext_sales_price)) over
               |          (partition by i_class) as revenueratio
               |from
-              |	 store_sales, item, date_dim
+              |	 ${tablePrefix}store_sales, ${tablePrefix}item, ${tablePrefix}date_dim
               |where
               |	ss_item_sk = i_item_sk
               |  	and i_category in ('Sports', 'Books', 'Home')
@@ -3826,7 +3834,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |	i_category, i_class, i_item_id, i_item_desc, revenueratio
             """.stripMargin),
     // Modifications: " -> `
-    ("q99", """
+    ("q99", s"""
               | select
               |    substr(w_warehouse_name,1,20), sm_type, cc_name
               |   ,sum(case when (cs_ship_date_sk - cs_sold_date_sk <= 30 ) then 1 else 0 end)  as `30 days`
@@ -3838,7 +3846,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               |                  (cs_ship_date_sk - cs_sold_date_sk <= 120) then 1 else 0 end)  as `91-120 days`
               |   ,sum(case when (cs_ship_date_sk - cs_sold_date_sk  > 120) then 1 else 0 end)  as `>120 days`
               | from
-              |    catalog_sales, warehouse, ship_mode, call_center, date_dim
+              |    ${tablePrefix}catalog_sales, ${tablePrefix}warehouse, ${tablePrefix}ship_mode, ${tablePrefix}call_center, ${tablePrefix}date_dim
               | where
               |     d_month_seq between 1200 and 1200 + 11
               | and cs_ship_date_sk   = d_date_sk
@@ -3851,7 +3859,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
               | limit 100
             """.stripMargin),
     ("qSsMax",
-      """
+      s"""
         |select
         |  count(*) as total,
         |  count(ss_sold_date_sk) as not_null_total,
@@ -3865,7 +3873,7 @@ class TPCDSSelection extends HardcodedQueryProvider {
         |  max(ss_addr_sk) as max_ss_addr_sk,
         |  max(ss_store_sk) as max_ss_store_sk,
         |  max(ss_promo_sk) as max_ss_promo_sk
-        |from store_sales
+        |from ${tablePrefix}store_sales
       """.stripMargin)
   ) collect {
     case (qid, sql) if selection contains qid => sql
